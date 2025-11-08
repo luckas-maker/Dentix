@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panel de Administración - Agenda Dental</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { box-sizing: border-box; }
+    .table-row { transition: background-color 0.2s ease, transform 0.2s ease; }
+    .table-row:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .highlight-red { color: #dc2626; font-weight: bold; }
+    .highlight-yellow { background-color: #fef9c3; }
+  </style>
+</head>
+
+<body class="h-full bg-gradient-to-br from-purple-50 to-indigo-100 font-sans">
+  <div class="min-h-full p-6">
+    <!-- Header -->
+    <div class="max-w-7xl mx-auto mb-8">
+      <div class="bg-white rounded-2xl shadow-lg p-6 border border-purple-100 flex justify-between items-center">
+        <div>
+          <h1 class="text-3xl font-bold text-gray-800 mb-2">🦷 Panel de Administración</h1>
+          <p class="text-gray-600">Gestione el estado y asistencia de los pacientes</p>
+        </div>
+        <div class="text-right">
+          <div class="text-sm text-gray-500">Fecha actual</div>
+          <div id="currentDate" class="text-lg font-semibold text-purple-600"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="max-w-7xl mx-auto">
+      <div class="bg-white rounded-2xl shadow-lg p-6 border border-purple-100 overflow-x-auto">
+        <h2 class="text-xl font-bold text-gray-800 mb-4">📋 Lista de Pacientes</h2>
+        <table class="min-w-full text-sm text-left text-gray-700">
+          <thead class="bg-purple-100 text-purple-800 uppercase text-xs">
+            <tr>
+              <th class="px-4 py-2">ID</th>
+              <th class="px-4 py-2">Nombre</th>
+              <th class="px-4 py-2">Correo</th>
+              <th class="px-4 py-2">Teléfono</th>
+              <th class="px-4 py-2">Última Cita</th>
+              <th class="px-4 py-2">Motivo</th>
+              <th class="px-4 py-2">Faltas</th>
+              <th class="px-4 py-2">Estado</th>
+              <th class="px-4 py-2 text-center">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="patientsTable"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script>
+    const patients = [
+      { id: 1, nombre: "Ana García", correo: "ana@correo.com", telefono: "555-0101", ultima: "2025-10-15", motivo: "Limpieza dental", faltas: 1, estado: "Activo", citasAgendadas: false },
+      { id: 2, nombre: "Pedro López", correo: "pedro@correo.com", telefono: "555-0102", ultima: "2025-10-03", motivo: "Extracción", faltas: 3, estado: "Activo", citasAgendadas: false },
+      { id: 3, nombre: "Laura Sánchez", correo: "laura@correo.com", telefono: "555-0103", ultima: "2025-09-29", motivo: "Empaste", faltas: 2, estado: "Bloqueado", citasAgendadas: false },
+      { id: 4, nombre: "Carlos Díaz", correo: "carlos@correo.com", telefono: "555-0104", ultima: "2025-10-10", motivo: "Ortodoncia", faltas: 0, estado: "Activo", citasAgendadas: true },
+      { id: 5, nombre: "María Torres", correo: "maria@correo.com", telefono: "555-0105", ultima: "2025-10-01", motivo: "Implante", faltas: 4, estado: "Activo", citasAgendadas: false }
+    ];
+
+    // Fecha actual
+    document.getElementById("currentDate").textContent = new Date().toLocaleDateString("es-ES", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
+    // Inicialización
+    function initPanel() {
+      renderTable();
+      checkWarnings();
+    }
+
+    // Renderizar tabla
+    function renderTable() {
+      const tbody = document.getElementById("patientsTable");
+      tbody.innerHTML = "";
+
+      patients.forEach(p => {
+        const tr = document.createElement("tr");
+        tr.className = "table-row border-b";
+
+        // Colores condicionales
+        if (p.estado === "Bloqueado") tr.classList.add("highlight-yellow");
+        const faltasClass = p.faltas >= 3 ? "highlight-red" : "";
+
+        tr.innerHTML = `
+          <td class="px-4 py-2 font-medium text-gray-800">${p.id}</td>
+          <td class="px-4 py-2">${p.nombre}</td>
+          <td class="px-4 py-2">${p.correo}</td>
+          <td class="px-4 py-2">${p.telefono}</td>
+          <td class="px-4 py-2">${p.ultima}</td>
+          <td class="px-4 py-2">${p.motivo}</td>
+          <td class="px-4 py-2 ${faltasClass}">${p.faltas}</td>
+          <td class="px-4 py-2 font-semibold">${p.estado}</td>
+          <td class="px-4 py-2 text-center space-x-2">
+            <button onclick="registrarAsistencia(${p.id})" class="px-2 py-1 bg-green-500 text-white rounded-lg hover:bg-green-600">Asistencia</button>
+            <button onclick="bloquearPaciente(${p.id})" class="px-2 py-1 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600">Bloquear</button>
+            <button onclick="desbloquearPaciente(${p.id})" class="px-2 py-1 bg-blue-500 text-white rounded-lg hover:bg-blue-600">Desbloquear</button>
+            <button onclick="eliminarPaciente(${p.id})" class="px-2 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600">Eliminar</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Verificar advertencias de faltas
+    function checkWarnings() {
+      const faltantes = patients.filter(p => p.faltas >= 3);
+      if (faltantes.length > 0) {
+        const nombres = faltantes.map(p => p.nombre).join(", ");
+        showModal(`⚠️ Advertencia`, `Los siguientes pacientes tienen 3 o más faltas consecutivas:<br><strong>${nombres}</strong>`);
+      }
+    }
+
+    // Registrar asistencia
+    function registrarAsistencia(id) {
+      const paciente = patients.find(p => p.id === id);
+      if (!paciente) return;
+      if (!confirm(`¿Está seguro de marcar la asistencia de ${paciente.nombre}?`)) return;
+      if (!paciente.citasAgendadas) {
+        alert("Este paciente no tiene cita para hoy.");
+        return;
+      }
+      paciente.faltas = 0;
+      alert(`Asistencia registrada correctamente para ${paciente.nombre}.`);
+      renderTable();
+    }
+
+    // Bloquear paciente
+    function bloquearPaciente(id) {
+      const paciente = patients.find(p => p.id === id);
+      if (!paciente) return;
+      if (paciente.citasAgendadas) {
+        alert("El usuario tiene citas agendadas. Debe reagendar su cita antes de bloquearlo.");
+        return;
+      }
+      if (!confirm(`¿Está seguro de bloquear a ${paciente.nombre}?`)) return;
+      paciente.estado = "Bloqueado";
+      alert(`Cuenta bloqueada y correo de notificación enviado a ${paciente.correo}.`);
+      renderTable();
+    }
+
+    // Desbloquear paciente
+    function desbloquearPaciente(id) {
+      const paciente = patients.find(p => p.id === id);
+      if (!paciente) return;
+      if (!confirm(`¿Está seguro de desbloquear a ${paciente.nombre}?`)) return;
+      paciente.estado = "Activo";
+      alert(`Cuenta de ${paciente.nombre} reactivada.`);
+      renderTable();
+    }
+
+    // Eliminar paciente
+    function eliminarPaciente(id) {
+      const paciente = patients.find(p => p.id === id);
+      if (!paciente) return;
+      if (paciente.citasAgendadas) {
+        alert("El usuario tiene citas agendadas. Debe cancelarlas antes de eliminarlo.");
+        return;
+      }
+      if (!confirm(`¿Está seguro de eliminar a ${paciente.nombre}? Esta acción no se puede deshacer.`)) return;
+      const index = patients.indexOf(paciente);
+      patients.splice(index, 1);
+      alert(`Paciente ${paciente.nombre} eliminado definitivamente del sistema.`);
+      renderTable();
+    }
+
+    // Modal de advertencia
+    function showModal(title, message) {
+      const modal = document.createElement("div");
+      modal.className = "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50";
+      modal.innerHTML = `
+        <div class="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full mx-4">
+          <h3 class="text-lg font-bold text-gray-800 mb-4">${title}</h3>
+          <p class="text-gray-700 mb-6">${message}</p>
+          <div class="text-right">
+            <button onclick="this.closest('.fixed').remove()" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">Cerrar</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    initPanel();
+  </script>
+</body>
+</html>
