@@ -1,115 +1,88 @@
 <?php
-header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
+// RUTA CORREGIDA: Incluir dependencias (subir un nivel)
+require_once '../config/database.php'; // Tu conexión PDO
+require_once 'send_email.php';       // La función de envío de correo
 
-// Función para respuesta segura
+// --- Configuración de respuesta JSON ---
+header('Content-Type: application/json');
 function sendResponse($data, $statusCode = 200) {
     http_response_code($statusCode);
     echo json_encode($data, JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-// Manejar preflight
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    sendResponse(['success' => true]);
+if ($_SERVER["REQUEST_METHOD"] !== "POST") {
+    sendResponse(['success' => false, 'message' => 'Método no permitido.'], 405);
 }
+// --- Fin de Configuración ---
 
-// Solo POST
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    sendResponse(['success' => false, 'message' => 'Método no permitido'], 405);
-}
+$db = getDBConnection();
 
 try {
-    // Incluir BD
-    $configPath = __DIR__ . '/../config/database.php';
-    if (!file_exists($configPath)) {
-        sendResponse(['success' => false, 'message' => 'Configuración no encontrada'], 500);
-    }
-    require_once $configPath;
+    $data = json_decode(file_get_contents("php://input"), true);
 
-    // Obtener datos
-    $input = file_get_contents('php://input');
-    if (empty($input)) {
-        sendResponse(['success' => false, 'message' => 'No se recibieron datos'], 400);
+    $nombres = trim($data["nombres"] ?? '');
+    $apellidos = trim($data["apellidos"] ?? '');
+    $correo = trim($data["email"] ?? '');
+    $contrasena = $data["password"] ?? null;
+    $telefono = $data["telefono"] ?? null;
+    $rol = "Paciente";
+    $estado_inicial = "Pendiente"; // El usuario se crea como Pendiente
+    
+    if (empty($nombres) || empty($apellidos) || empty($correo) || empty($contrasena) || empty($telefono)) {
+        sendResponse(['success' => false, 'message' => 'Todos los campos son obligatorios.'], 400);
     }
     
-    $data = json_decode($input, true);
-    if (json_last_error() !== JSON_ERROR_NONE) {
-        sendResponse(['success' => false, 'message' => 'JSON inválido'], 400);
+    $hash = password_hash($contrasena, PASSWORD_DEFAULT);
+
+    // Verificar si el correo ya existe
+    $sqlCheck = "SELECT id_usuario FROM Usuarios WHERE correo = ?";
+    $stmtCheck = $db->prepare($sqlCheck);
+    $stmtCheck->execute([$correo]);
+    if ($stmtCheck->fetch()) {
+        sendResponse(['success' => false, 'message' => 'El correo electrónico ya está registrado.'], 409);
     }
+    $stmtCheck->closeCursor();
 
-    // Procesar datos...
-    $nombres = trim($data['nombres'] ?? '');
-    $apellidos = trim($data['apellidos'] ?? '');
-    $email = trim($data['email'] ?? '');
-    $telefono = trim($data['telefono'] ?? '');
-    $contrasena = $data['password'] ?? '';
+    // Iniciar Transacción (CRÍTICO)
+    $db->beginTransaction();
 
-    // Validaciones...
-    if (empty($nombres) || empty($apellidos) || empty($email) || empty($telefono) || empty($contrasena)) {
-        sendResponse(['success' => false, 'message' => 'Todos los campos son obligatorios'], 400);
-    }
-
-    // Conectar BD
-    $db = getDBConnection();
-
-    // Verificar email existente
-    $stmt = $db->prepare("SELECT id_usuario FROM Usuarios WHERE correo = ?");
-    $stmt->execute([$email]);
-    if ($stmt->fetch()) {
-        sendResponse(['success' => false, 'message' => 'Este correo ya está registrado'], 400);
-    }
-
-    // Verificar teléfono existente
-    $stmt = $db->prepare("SELECT id_usuario FROM Usuarios WHERE telefono = ?");
-    $stmt->execute([$telefono]);
-    if ($stmt->fetch()) {
-        sendResponse(['success' => false, 'message' => 'Este número de teléfono ya está registrado'], 400);
-    }
-
-    // Generar código paciente
-    $stmt = $db->query("SELECT MAX(CAST(SUBSTRING(codigo_paciente, 5) AS UNSIGNED)) as max_codigo FROM Usuarios WHERE codigo_paciente IS NOT NULL");
-    $result = $stmt->fetch();
-    $nextNumber = ($result['max_codigo'] ?? 0) + 1;
-    $codigoPaciente = 'CLTE' . str_pad($nextNumber, 3, '0', STR_PAD_LEFT);
-
-    // Hash contraseña
-    $contrasenaHash = password_hash($contrasena, PASSWORD_DEFAULT);
-
-    // Insertar usuario
-    $stmt = $db->prepare("
-        INSERT INTO Usuarios (codigo_paciente, nombre, apellidos, correo, contrasena, telefono, rol, estado_cuenta) 
-        VALUES (?, ?, ?, ?, ?, ?, 'Paciente', 'Activo')
-    ");
+    // 1. Insertar el usuario (dejando codigo_paciente NULL temporalmente)
+    $sqlInsert = "INSERT INTO Usuarios (nombre, apellidos, correo, contrasena, telefono, rol, estado_cuenta)
+                  VALUES (?, ?, ?, ?, ?, ?, ?)";
+    $stmtInsert = $db->prepare($sqlInsert);
+    $stmtInsert->execute([$nombres, $apellidos, $correo, $hash, $telefono, $rol, $estado_inicial]);
     
-    $result = $stmt->execute([
-        $codigoPaciente,
-        $nombres,
-        $apellidos,
-        $email,
-        $contrasenaHash,
-        $telefono
-    ]);
+    // 2. Obtener el ID del usuario recién creado
+    $user_id = $db->lastInsertId();
 
-    if ($result) {
-        sendResponse(['success' => true, 'message' => 'Registro exitoso']);
+    // 3. Generar y actualizar el codigo_paciente (CLTE + ID)
+    $codigo_paciente = 'CLTE' . str_pad($user_id, 4, '0', STR_PAD_LEFT);
+    $sqlUpdate = "UPDATE Usuarios SET codigo_paciente = ? WHERE id_usuario = ?";
+    $db->prepare($sqlUpdate)->execute([$codigo_paciente, $user_id]);
+
+    // 4. Generar código de 6 dígitos
+    $codigo_token = str_pad(mt_rand(100000, 999999), 6, '0', STR_PAD_LEFT);
+    $fecha_expiracion = date('Y-m-d H:i:s', time() + (24 * 3600)); // 24 horas
+
+    // 5. Insertar en tokensvalidacion
+    $sql_token = "INSERT INTO tokensvalidacion (id_usuario, codigo, tipo, fecha_expiracion) VALUES (?, ?, 'ValidacionCorreo', ?)";
+    $stmt_token = $db->prepare($sql_token);
+    $stmt_token->execute([$user_id, $codigo_token, $fecha_expiracion]);
+    
+    // 6. Confirmar la transacción
+    $db->commit();
+    
+    // 7. Enviar el Correo Electrónico
+    if (sendVerificationEmail($correo, $codigo_token)) {
+        sendResponse(['success' => true, 'message' => 'Registro exitoso.', 'email' => $correo]);
     } else {
-        sendResponse(['success' => false, 'message' => 'Error al guardar usuario'], 500);
+        // AÚN SI EL CORREO FALLA, EL REGISTRO FUE EXITOSO (PENDIENTE)
+        sendResponse(['success' => true, 'message' => 'Registro exitoso, pero falló el envío del código.', 'email' => $correo]);
     }
 
 } catch (PDOException $e) {
-    sendResponse([
-        'success' => false, 
-        'message' => 'Error de base de datos',
-        'debug' => $e->getMessage()
-    ], 500);
-} catch (Exception $e) {
-    sendResponse([
-        'success' => false, 
-        'message' => 'Error interno del servidor',
-        'debug' => $e->getMessage()
-    ], 500);
+    if (isset($db) && $db->inTransaction()) $db->rollBack();
+    sendResponse(['success' => false, 'message' => 'Error de base de datos: ' . $e->getMessage()], 500);
 }
 ?>
