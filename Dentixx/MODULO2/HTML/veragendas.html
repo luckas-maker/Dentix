@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reserva de citas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/js/all.min.js"></script>
+    <style>
+                body {
+            box-sizing: border-box;
+        }
+        .calendar-day {
+            transition: all 0.2s ease;
+        }
+        .calendar-day:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        .today {
+            border: 2px solid #2563eb;
+            background-color: #eff6ff;
+        }
+        .available-slot {
+            border: 2px solid #10b981;
+            background-color: #f0fdf4;
+            margin-bottom: 2px;
+            cursor: pointer;
+        }
+        .available-slot:hover {
+            background-color: #dcfce7;
+        }
+        .bg-dental-gradient {
+            background: linear-gradient(135deg, #00b4d8 0%, #0077b6 100%);
+        }
+        .dental-accent {
+            color: #0077b6;
+        }
+    </style>
+</head>
+<body class="h-full bg-gradient-to-br from-blue-50 to-indigo-100 font-sans">
+    <!-- Header -->
+    <header class="bg-dental-gradient text-white shadow-lg">
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-4">
+                    <a href="../../MODULO2/HTML/veragendas.html">
+                        <img src="../../assets/img/logo-writopeks.jpg" alt="Writo Peks Consultorio Dental" class="h-8 w-auto">
+                    </a>
+                    <h1 class="text-xl font-bold">Consultorio Dental Dentix</h1>
+                    <nav class="hidden md:flex space-x-4 ml-8">
+                        <button onclick="window.location.href='../../MODULO2/HTML/miscitas.html'" class="text-white font-bold hover:text-gray-200 transition-colors">Mis citas</button>
+                        <button onclick="window.location.href='../../MODULO2/HTML/veragendas.html'" class="text-white font-bold hover:text-gray-200 transition-colors">Reservar citas</button>
+                        <button onclick="window.location.href='../../MODULO1/HTML/miperfil.php'" class="text-white font-bold hover:text-gray-200 transition-colors">Mi perfil</button>
+                    </nav>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm"><?php echo htmlspecialchars($usuario['nombre'] . ' ' . $usuario['apellidos']); ?></span>
+                    <button onclick="confirmarCerrarSesion()" class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-sm transition-colors">
+                        <i class="fas fa-sign-out-alt mr-1"></i>Cerrar Sesión
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="min-h-full p-6">
+        <!-- Header -->
+        <div class="max-w-7xl mx-auto mb-8">
+            <div class="bg-white rounded-2xl shadow-lg p-6 border border-blue-100">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 class="text-3xl font-bold text-gray-800 mb-2">Reserva de citas</h1>
+                        <p class="text-gray-600">Visualice y reserve su cita en los horarios disponibles</p>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-sm text-gray-500">Fecha actual</div>
+                        <div class="text-lg font-semibold text-blue-600" id="currentDate"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="max-w-7xl mx-auto">
+            <!-- Calendar Section -->
+            <div class="bg-white rounded-2xl shadow-lg p-6 border border-blue-100">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-xl font-bold text-gray-800">📅 Calendario de horarios disponibles</h2>
+                    <div class="flex items-center space-x-4">
+                        <button onclick="previousMonth()" class="p-2 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-600 transition-colors">
+                            ←
+                        </button>
+                        <span class="font-semibold text-gray-700" id="monthYear"></span>
+                        <button onclick="nextMonth()" class="p-2 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-600 transition-colors">
+                            →
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-7 gap-2 mb-4">
+                    <div class="text-center font-semibold text-gray-600 py-2">Dom</div>
+                    <div class="text-center font-semibold text-gray-600 py-2">Lun</div>
+                    <div class="text-center font-semibold text-gray-600 py-2">Mar</div>
+                    <div class="text-center font-semibold text-gray-600 py-2">Mié</div>
+                    <div class="text-center font-semibold text-gray-600 py-2">Jue</div>
+                    <div class="text-center font-semibold text-gray-600 py-2">Vie</div>
+                    <div class="text-center font-semibold text-gray-600 py-2">Sáb</div>
+                </div>
+                
+                <div class="grid grid-cols-7 gap-2" id="calendarGrid">
+                    <!-- Calendar days will be generated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentDate = new Date();
+        let availableSlots = {}; // Object to store available dates and times
+
+        // Initialize sample available slots for the current month
+        function initAvailableSlots() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            // Sample: make some days available with specific times
+            const sampleSlots = {
+                [new Date(year, month, 5).toISOString().split('T')[0]]: ['09:00', '10:00', '11:00'],
+                [new Date(year, month, 10).toISOString().split('T')[0]]: ['14:00', '15:00'],
+                [new Date(year, month, 15).toISOString().split('T')[0]]: ['16:00'],
+                [new Date(year, month, 20).toISOString().split('T')[0]]: ['09:30', '10:30'],
+                [new Date(year, month, 25).toISOString().split('T')[0]]: ['13:00', '14:00', '15:00']
+            };
+            availableSlots = sampleSlots;
+        }
+
+        // Initialize the calendar
+        function initCalendar() {
+            initAvailableSlots();
+            updateCurrentDate();
+            generateCalendar();
+        }
+
+        function updateCurrentDate() {
+            const today = new Date();
+            const currentDateElement = document.getElementById('currentDate');
+            const dateText = document.createTextNode(today.toLocaleDateString('es-ES', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            }));
+            currentDateElement.appendChild(dateText);
+        }
+
+        function generateCalendar() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            
+            const monthYearElement = document.getElementById('monthYear');
+            const monthYearText = document.createTextNode(currentDate.toLocaleDateString('es-ES', {
+                month: 'long',
+                year: 'numeric'
+            }));
+            monthYearElement.innerHTML = '';
+            monthYearElement.appendChild(monthYearText);
+
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const startDate = new Date(firstDay);
+            startDate.setDate(startDate.getDate() - firstDay.getDay());
+
+            const calendarGrid = document.getElementById('calendarGrid');
+            // Clear existing content
+            while (calendarGrid.firstChild) {
+                calendarGrid.removeChild(calendarGrid.firstChild);
+            }
+
+            for (let i = 0; i < 42; i++) {
+                const date = new Date(startDate);
+                date.setDate(startDate.getDate() + i);
+                
+                const dayElement = document.createElement('div');
+                const dateStr = date.toISOString().split('T')[0];
+                const isCurrentMonth = date.getMonth() === month;
+                const isToday = date.toDateString() === new Date().toDateString();
+                const slots = availableSlots[dateStr] || [];
+                
+                dayElement.className = `
+                    p-2 rounded-lg transition-all hover:scale-105 min-h-32 border calendar-day
+                    ${isCurrentMonth ? 'text-gray-800 bg-white border-gray-200' : 'text-gray-400 bg-gray-50 border-gray-100'}
+                    ${isToday ? 'today' : ''}
+                `;
+                
+                // Day number
+                const dayNumber = document.createElement('div');
+                dayNumber.className = `text-sm font-semibold mb-1 ${isToday ? 'text-blue-600' : ''}`;
+                const dayText = document.createTextNode(date.getDate());
+                dayNumber.appendChild(dayText);
+                dayElement.appendChild(dayNumber);
+                
+                // Available slots
+                if (slots.length > 0) {
+                    const slotsContainer = document.createElement('div');
+                    slotsContainer.className = 'space-y-1';
+                    slots.forEach(time => {
+                        const slotElement = document.createElement('div');
+                        slotElement.className = 'available-slot text-xs px-1 py-0.5 rounded text-center text-green-800 font-medium';
+                        const timeText = document.createTextNode(time);
+                        slotElement.appendChild(timeText);
+                        slotElement.onclick = (e) => {
+                            e.stopPropagation();
+                            openReservationModal(dateStr, date, time);
+                        };
+                        slotsContainer.appendChild(slotElement);
+                    });
+                    dayElement.appendChild(slotsContainer);
+                }
+                
+                calendarGrid.appendChild(dayElement);
+            }
+        }
+
+        function openReservationModal(dateStr, date, time) {
+            // Create modal backdrop
+            const modalBackdrop = document.createElement('div');
+            modalBackdrop.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            modalBackdrop.onclick = (e) => {
+                if (e.target === modalBackdrop) {
+                    modalBackdrop.remove();
+                }
+            };
+
+            // Create modal content
+            const modalContent = document.createElement('div');
+            modalContent.className = 'bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full mx-4';
+            
+            const dateFormatted = date.toLocaleDateString('es-ES', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric'
+            });
+
+            const modalTitle = document.createElement('h3');
+            modalTitle.className = 'text-xl font-bold text-gray-800 mb-4';
+            const titleText = document.createTextNode('📅 Reservar Cita');
+            modalTitle.appendChild(titleText);
+
+            const closeButton = document.createElement('button');
+            closeButton.className = 'text-gray-500 hover:text-gray-700 text-2xl';
+            closeButton.textContent = '×';
+            closeButton.onclick = () => modalBackdrop.remove();
+
+            const headerDiv = document.createElement('div');
+            headerDiv.className = 'flex items-center justify-between mb-4';
+            headerDiv.appendChild(modalTitle);
+            headerDiv.appendChild(closeButton);
+
+            const infoP = document.createElement('p');
+            infoP.className = 'text-gray-600 mb-4';
+            const infoText = document.createTextNode(`Fecha: ${dateFormatted} - Hora: ${time}`);
+            infoP.appendChild(infoText);
+
+            const serviceLabel = document.createElement('label');
+            serviceLabel.className = 'block text-sm font-medium text-gray-700 mb-2';
+            const labelText = document.createTextNode('Seleccione el servicio odontológico:');
+            serviceLabel.appendChild(labelText);
+
+            const serviceSelect = document.createElement('select');
+            serviceSelect.className = 'w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4';
+            const services = ['Limpieza dental', 'Endodoncia', 'Ortodoncia', 'Implante dental', 'Extraccion'];
+            services.forEach((service, index) => {
+                const option = document.createElement('option');
+                option.value = service;
+                if (index === 0) option.selected = true; // Seleccionar "Limpieza dental" por defecto
+                const optionText = document.createTextNode(service);
+                option.appendChild(optionText);
+                serviceSelect.appendChild(option);
+            });
+
+            const noButton = document.createElement('button');
+            noButton.className = 'px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors';
+            noButton.textContent = 'Cancelar';
+            noButton.onclick = () => modalBackdrop.remove();
+
+            const yesButton = document.createElement('button');
+            yesButton.className = 'px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors';
+            yesButton.textContent = 'Reservar';
+            yesButton.onclick = () => {
+                const selectedService = serviceSelect.value;
+                confirmReservation(dateStr, time, selectedService);
+                modalBackdrop.remove();
+            };
+
+            const buttonsDiv = document.createElement('div');
+            buttonsDiv.className = 'flex space-x-3 justify-end';
+            buttonsDiv.appendChild(noButton);
+            buttonsDiv.appendChild(yesButton);
+
+            const contentDiv = document.createElement('div');
+            contentDiv.appendChild(infoP);
+            contentDiv.appendChild(serviceLabel);
+            contentDiv.appendChild(serviceSelect);
+            contentDiv.appendChild(buttonsDiv);
+
+            modalContent.appendChild(headerDiv);
+            modalContent.appendChild(contentDiv);
+
+            modalBackdrop.appendChild(modalContent);
+            document.body.appendChild(modalBackdrop);
+        }
+
+        function confirmReservation(dateStr, time, service) {
+            // Remove the specific time slot
+            if (availableSlots[dateStr]) {
+                availableSlots[dateStr] = availableSlots[dateStr].filter(t => t !== time);
+                if (availableSlots[dateStr].length === 0) {
+                    delete availableSlots[dateStr];
+                }
+            }
+            // Refresh calendar
+            generateCalendar();
+            // Show success message
+            showSuccessMessage(`Cita reservada exitosamente para ${service}`);
+        }
+
+        function showSuccessMessage(message) {
+            const toast = document.createElement('div');
+            toast.className = 'fixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg z-50 transform translate-x-full transition-transform';
+            const messageText = document.createTextNode(message);
+            toast.appendChild(messageText);
+            
+            document.body.appendChild(toast);
+            
+            // Animate in
+            setTimeout(() => {
+                toast.classList.remove('translate-x-full');
+            }, 100);
+            
+            // Remove after 3 seconds
+            setTimeout(() => {
+                toast.classList.add('translate-x-full');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function previousMonth() {
+            currentDate.setMonth(currentDate.getMonth() - 1);
+            initAvailableSlots(); // Reinitialize for new month
+            generateCalendar();
+        }
+
+        function nextMonth() {
+            currentDate.setMonth(currentDate.getMonth() + 1);
+            initAvailableSlots(); // Reinitialize for new month
+            generateCalendar();
+        }
+
+        // Initialize the application
+        initCalendar();
+    </script>
+</body>
+</html>
