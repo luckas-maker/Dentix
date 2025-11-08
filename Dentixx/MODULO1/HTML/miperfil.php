@@ -94,63 +94,57 @@ try {
     }
     
     // Procesar actualización de foto
-    // Procesar actualización de foto
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['foto_perfil'])) {
-    $allowed = ['jpg', 'jpeg', 'png', 'gif'];
-    $filename = $_FILES['foto_perfil']['name'];
-    $filetype = pathinfo($filename, PATHINFO_EXTENSION);
-
-    // Validar tipo MIME real del archivo
-    $finfo = finfo_open(FILEINFO_MIME_TYPE);
-    $mime = finfo_file($finfo, $_FILES['foto_perfil']['tmp_name']);
-    finfo_close($finfo);
-
-    $allowed_mimes = ['image/jpeg', 'image/png', 'image/gif'];
-
-    if (!in_array(strtolower($filetype), $allowed)) {
-        $mensaje = 'Solo se permiten archivos JPG, JPEG, PNG y GIF';
-        $tipo_mensaje = 'error';
-    } elseif (!in_array($mime, $allowed_mimes)) {
-        $mensaje = 'El archivo no es una imagen válida';
-        $tipo_mensaje = 'error';
-    } elseif ($_FILES['foto_perfil']['size'] > 2097152) { // 2MB
-        $mensaje = 'El archivo es demasiado grande (máximo 2MB)';
-        $tipo_mensaje = 'error';
-    } else {
-        $target_dir = __DIR__ . '/../../uploads/perfiles/';
-        if (!file_exists($target_dir)) {
-            mkdir($target_dir, 0777, true);
-        }
-
-        $new_filename = 'perfil_' . $user_id . '_' . time() . '.' . $filetype;
-        $target_file = $target_dir . $new_filename;
-        $relative_path = '../../uploads/perfiles/' . $new_filename; // ruta web relativa
-
-        if (move_uploaded_file($_FILES['foto_perfil']['tmp_name'], $target_file)) {
-            // Eliminar foto anterior si existe (ruta física)
-            if (!empty($usuario['foto_perfil'])) {
-                $foto_anterior_path = __DIR__ . '/../../' . ltrim($usuario['foto_perfil'], './');
-                if (file_exists($foto_anterior_path)) {
-                    unlink($foto_anterior_path);
-                }
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['foto_perfil'])) {
+        $allowed = ['jpg', 'jpeg', 'png', 'gif'];
+        $filename = $_FILES['foto_perfil']['name'];
+        $filetype = pathinfo($filename, PATHINFO_EXTENSION);
+        
+        // Validar tipo MIME real del archivo
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime = finfo_file($finfo, $_FILES['foto_perfil']['tmp_name']);
+        finfo_close($finfo);
+        
+        $allowed_mimes = ['image/jpeg', 'image/png', 'image/gif'];
+        
+        if (!in_array(strtolower($filetype), $allowed)) {
+            $mensaje = 'Solo se permiten archivos JPG, JPEG, PNG y GIF';
+            $tipo_mensaje = 'error';
+        } elseif (!in_array($mime, $allowed_mimes)) {
+            $mensaje = 'El archivo no es una imagen válida';
+            $tipo_mensaje = 'error';
+        } elseif ($_FILES['foto_perfil']['size'] > 2097152) { // 2MB
+            $mensaje = 'El archivo es demasiado grande (máximo 2MB)';
+            $tipo_mensaje = 'error';
+        } else {
+            $target_dir = "uploads/perfiles/";
+            if (!file_exists($target_dir)) {
+                mkdir($target_dir, 0777, true);
             }
-
-            $stmt = $db->prepare("UPDATE Usuarios SET foto_perfil = ? WHERE id_usuario = ?");
-            if ($stmt->execute([$relative_path, $user_id])) {
-                $mensaje = 'Foto de perfil actualizada correctamente';
-                $tipo_mensaje = 'success';
-                $usuario['foto_perfil'] = $relative_path;
+            
+            $new_filename = 'perfil_' . $user_id . '_' . time() . '.' . $filetype;
+            $target_file = $target_dir . $new_filename;
+            
+            if (move_uploaded_file($_FILES['foto_perfil']['tmp_name'], $target_file)) {
+                // Eliminar foto anterior si existe
+                if (!empty($usuario['foto_perfil']) && file_exists($usuario['foto_perfil'])) {
+                    unlink($usuario['foto_perfil']);
+                }
+                
+                $stmt = $db->prepare("UPDATE Usuarios SET foto_perfil = ? WHERE id_usuario = ?");
+                if ($stmt->execute([$target_file, $user_id])) {
+                    $mensaje = 'Foto de perfil actualizada correctamente';
+                    $tipo_mensaje = 'success';
+                    $usuario['foto_perfil'] = $target_file;
+                } else {
+                    $mensaje = 'Error al guardar la foto en la base de datos';
+                    $tipo_mensaje = 'error';
+                }
             } else {
-                $mensaje = 'Error al guardar la foto en la base de datos';
+                $mensaje = 'Error al subir el archivo';
                 $tipo_mensaje = 'error';
             }
-        } else {
-            $mensaje = 'Error al subir el archivo';
-            $tipo_mensaje = 'error';
         }
     }
-}
-
     
 } catch (Exception $e) {
     $mensaje = 'Error del servidor: ' . $e->getMessage();
@@ -174,30 +168,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['foto_perfil'])) {
 <body class="bg-gray-50">
     <!-- Header -->
     <header class="bg-dental-gradient text-white shadow-lg">
-    <div class="container mx-auto px-4 py-4">
-        <div class="flex justify-between items-center">
-            <div class="flex items-center space-x-4">
-                <a href="../../MODULO2/HTML/veragendas.html">
-                    <img src="../../assets/img/logo-writopeks.jpg" alt="Writo Peks Consultorio Dental" class="h-8 w-auto">
-                </a>
-                <h1 class="text-xl font-bold">Consultorio Dental Dentix</h1>
-                <nav class="hidden md:flex space-x-4 ml-8">
-                    <button onclick="window.location.href='../../MODULO2/HTML/miscitas.html'" class="text-white font-bold hover:text-gray-200 transition-colors">Mis citas</button>
-                    <button onclick="window.location.href='../../MODULO2/HTML/veragendas.html'" class="text-white font-bold hover:text-gray-200 transition-colors">Reservar citas</button>
-                    <button onclick="window.location.href='miperfil.php'" class="text-white font-bold hover:text-gray-200 transition-colors">Mi perfil</button>
-                </nav>
-            </div>
-            <div class="flex items-center space-x-4">
-                <span class="text-sm"><?php echo htmlspecialchars($usuario['nombre'] . ' ' . $usuario['apellidos']); ?></span>
-                <button onclick="confirmarCerrarSesion()" class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-sm transition-colors">
-                    <i class="fas fa-sign-out-alt mr-1"></i>Cerrar Sesión
-                </button>
+        <div class="container mx-auto px-4 py-4">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-4">
+                    <i class="fas fa-tooth text-2xl"></i>
+                    <h1 class="text-xl font-bold">Consultorio Dental Dentix</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm"><?php echo htmlspecialchars($usuario['nombre'] . ' ' . $usuario['apellidos']); ?></span>
+                    <button onclick="confirmarCerrarSesion()" class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-sm transition-colors">
+                        <i class="fas fa-sign-out-alt mr-1"></i>Cerrar Sesión
+                    </button>
+                    <button onclick="window.history.back()" class="bg-white text-blue-600 px-3 py-1 rounded text-sm hover:bg-gray-100">
+                        <i class="fas fa-arrow-left mr-1"></i>Volver
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
-</header>
-
-
+    </header>
 
     <!-- Main Content -->
     <main class="container mx-auto px-4 py-8">
