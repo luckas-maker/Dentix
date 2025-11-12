@@ -1,3 +1,126 @@
+<?php
+session_start();
+include '../../config/database.php';
+
+// obtener citas confirmadas desde la base de datos
+function getConfirmedAppointments() {
+    $pdo = getDBConnection();
+    $appointments = [];
+    
+    try {
+        $stmt = $pdo->prepare("
+            SELECT 
+                c.id_cita,
+                c.id_paciente,
+                u.nombre,
+                u.apellidos,
+                u.telefono,
+                c.tipo_servicio as treatment,
+                f.fecha,
+                f.hora_inicio as time,
+                c.estado_cita as status,
+                c.fecha_creacion
+            FROM citas c
+            LEFT JOIN usuarios u ON c.id_paciente = u.id_usuario
+            LEFT JOIN franjasdisponibles f ON c.id_franja = f.id_franja
+            WHERE c.estado_cita = 'Confirmada'
+            ORDER BY f.fecha, f.hora_inicio
+        ");
+        $stmt->execute();
+        
+        $appointments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+    } catch (Exception $e) {
+        error_log("Error getting confirmed appointments: " . $e->getMessage());
+    }
+    
+    return $appointments;
+}
+
+// funcion para actualizar el estado de la cita
+function updateAppointmentStatus($appointmentId, $status) {
+    $pdo = getDBConnection();
+    
+    try {
+        $stmt = $pdo->prepare("
+            UPDATE citas 
+            SET estado_cita = ? 
+            WHERE id_cita = ?
+        ");
+        return $stmt->execute([$status, $appointmentId]);
+    } catch (Exception $e) {
+        error_log("Error updating appointment status: " . $e->getMessage());
+        return false;
+    }
+}
+
+// obtener citas desde la base de datos
+$dbAppointments = getConfirmedAppointments();
+
+// convertir la información al formato esperado en el front-end
+$appointmentsData = [];
+foreach ($dbAppointments as $dbAppt) {
+    $dateStr = $dbAppt['fecha'];
+    $patientName = $dbAppt['nombre'] . ' ' . $dbAppt['apellidos'];
+    
+    // convertir el estatus al formato del front-end
+    $status = 'confirmed'; // default
+    if ($dbAppt['status'] === 'Asistida') {
+        $status = 'completed';
+    } elseif ($dbAppt['status'] === 'No Asistio') {
+        $status = 'absent';
+    } elseif ($dbAppt['status'] === 'Cancelada') {
+        $status = 'cancelled';
+    }
+    
+    if (!isset($appointmentsData[$dateStr])) {
+        $appointmentsData[$dateStr] = [];
+    }
+    
+    $appointmentsData[$dateStr][] = [
+        'id_cita' => $dbAppt['id_cita'],
+        'time' => substr($dbAppt['time'], 0, 5),
+        'patient' => $patientName,
+        'treatment' => $dbAppt['treatment'],
+        'phone' => $dbAppt['telefono'],
+        'status' => $status,
+        'db_status' => $dbAppt['status'] //guardar el status anterior para referencia
+    ];
+}
+
+// manejar las actualizaciones de estado con AJAX 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    header('Content-Type: application/json');
+    
+    try {
+        switch ($_POST['action']) {
+            case 'update_status':
+                $appointmentId = $_POST['appointmentId'];
+                $newStatus = $_POST['newStatus'];
+                
+                // comparación del estatus en la base de datos y en el frontend
+                $statusMap = [
+                    'completed' => 'Asistida',
+                    'absent' => 'No Asistio', 
+                    'cancelled' => 'Cancelada'
+                ];
+                
+                $dbStatus = $statusMap[$newStatus] ?? $newStatus;
+                $success = updateAppointmentStatus($appointmentId, $dbStatus);
+                
+                echo json_encode(['success' => $success]);
+                break;
+                
+            default:
+                echo json_encode(['success' => false, 'error' => 'Acción no válida']);
+        }
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
+    exit;
+}
+?>
+
 <!DOCTYPE html>
 <html lang="es" class="h-full">
 <head>
@@ -29,7 +152,6 @@
 </head>
 <body class="h-full bg-gradient-to-br from-blue-50 to-indigo-100 font-sans">
     <div class="min-h-full p-6">
-    
         <!-- Header -->
         <div class="max-w-7xl mx-auto mb-8">
             <div class="bg-white rounded-2xl shadow-lg p-6 border border-blue-100">
@@ -74,14 +196,14 @@
                     </div>
                     
                     <div class="grid grid-cols-7 gap-2" id="calendarGrid">
-                        <!-- Calendar days will be generated here -->
+                        <!-- Los dias del calendario se muestran aqui -->
                     </div>
                 </div>
             </div>
 
-            <!-- Statistics and Info Panel -->
+            <!-- Estadisticas y panel -->
             <div class="space-y-6">
-                <!-- Monthly Summary -->
+                <!-- Resumen del mes -->
                 <div class="bg-white rounded-2xl shadow-lg p-4 border border-blue-100">
                     <h3 class="text-lg font-bold text-gray-800 mb-3">📊 Resumen del Mes</h3>
                     
@@ -91,135 +213,28 @@
                                 <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
                                 <span class="text-sm font-medium text-blue-800">Citas Confirmadas</span>
                             </div>
-                            <span class="font-bold text-blue-600" id="confirmedCount">0</span>
+                            <span class="font-bold text-blue-600" id="confirmedCount"></span>
                         </div>
                     </div>
                 </div>
 
-                <!-- Today's Appointments -->
+                
                 <div class="bg-white rounded-2xl shadow-lg p-4 border border-blue-100">
                     <h3 class="text-lg font-bold text-gray-800 mb-3">📋 Citas de Hoy</h3>
                     <div id="todayAppointments" class="space-y-2">
-                        <!-- Today's appointments will be shown here -->
+                        <!-- Las citas de hoy se muestran aquí -->
                     </div>
                 </div>
-            
             </div>
         </div>
     </div>
 
     <script>
         let currentDate = new Date();
-        let appointmentsData = {};
+        let appointmentsData = <?php echo json_encode($appointmentsData); ?>;
 
-        // Sample appointments data - Only confirmed appointments
-        function initSampleData() {
-            const today = new Date();
-            const currentMonth = today.getMonth();
-            const currentYear = today.getFullYear();
-
-            // Generate sample appointments for the current month (only confirmed)
-            const sampleAppointments = [
-                {
-                    date: new Date(currentYear, currentMonth, 5),
-                    time: '09:00',
-                    patient: 'María González',
-                    treatment: 'Limpieza dental',
-                    phone: '555-0123',
-                    status: 'confirmed'
-                },
-                {
-                    date: new Date(currentYear, currentMonth, 5),
-                    time: '10:30',
-                    patient: 'Carlos Rodríguez',
-                    treatment: 'Empaste',
-                    phone: '555-0124',
-                    status: 'confirmed'
-                },
-                {
-                    date: new Date(currentYear, currentMonth, 8),
-                    time: '14:00',
-                    patient: 'Ana Martínez',
-                    treatment: 'Ortodoncia - Revisión',
-                    phone: '555-0125',
-                    status: 'confirmed'
-                },
-                {
-                    date: new Date(currentYear, currentMonth, 8),
-                    time: '15:30',
-                    patient: 'Luis Pérez',
-                    treatment: 'Extracción',
-                    phone: '555-0126',
-                    status: 'confirmed'
-                },
-                {
-                    date: new Date(currentYear, currentMonth, 12),
-                    time: '11:00',
-                    patient: 'Carmen López',
-                    treatment: 'Blanqueamiento',
-                    phone: '555-0127',
-                    status: 'confirmed'
-                },
-                {
-                    date: new Date(currentYear, currentMonth, 15),
-                    time: '16:00',
-                    patient: 'Roberto Silva',
-                    treatment: 'Implante dental',
-                    phone: '555-0128',
-                    status: 'confirmed'
-                },
-                {
-                    date: new Date(currentYear, currentMonth, 18),
-                    time: '09:30',
-                    patient: 'Elena Vargas',
-                    treatment: 'Endodoncia',
-                    phone: '555-0129',
-                    status: 'confirmed'
-                },
-                {
-                    date: new Date(currentYear, currentMonth, 22),
-                    time: '13:00',
-                    patient: 'Miguel Torres',
-                    treatment: 'Prótesis dental',
-                    phone: '555-0130',
-                    status: 'confirmed'
-                },
-                {
-                    date: today,
-                    time: '10:00',
-                    patient: 'Patricia Ruiz',
-                    treatment: 'Consulta general',
-                    phone: '555-0131',
-                    status: 'confirmed'
-                },
-                {
-                    date: today,
-                    time: '15:00',
-                    patient: 'Fernando Castro',
-                    treatment: 'Limpieza dental',
-                    phone: '555-0132',
-                    status: 'confirmed'
-                }
-            ];
-
-            // Organize appointments by date
-            sampleAppointments.forEach(appointment => {
-                const dateStr = appointment.date.toISOString().split('T')[0];
-                if (!appointmentsData[dateStr]) {
-                    appointmentsData[dateStr] = [];
-                }
-                appointmentsData[dateStr].push(appointment);
-            });
-
-            // Sort appointments by time for each date
-            Object.keys(appointmentsData).forEach(dateStr => {
-                appointmentsData[dateStr].sort((a, b) => a.time.localeCompare(b.time));
-            });
-        }
-
-        // Initialize the calendar
+        // inicializar el calendario
         function initCalendar() {
-            initSampleData();
             updateCurrentDate();
             generateCalendar();
             updateStatistics();
@@ -270,19 +285,19 @@
                     ${hasAppointments ? 'border-green-400' : ''}
                 `;
                 
-                // Day number
+                // numero del dia
                 const dayNumber = document.createElement('div');
                 dayNumber.className = `text-sm font-semibold mb-1 ${isToday ? 'text-blue-600' : ''}`;
                 dayNumber.textContent = date.getDate();
                 dayElement.appendChild(dayNumber);
                 
-                // Appointments display
+                //despliegue de las citas
                 if (hasAppointments) {
                     const appointments = appointmentsData[dateStr];
                     const appointmentsContainer = document.createElement('div');
                     appointmentsContainer.className = 'space-y-1';
                     
-                    // Show first few appointments
+                    // Vista previa de las citas de un dia
                     const visibleAppointments = appointments.slice(0, 3);
                     visibleAppointments.forEach((appointment, index) => {
                         const appointmentElement = document.createElement('div');
@@ -306,7 +321,7 @@
                         appointmentsContainer.appendChild(appointmentElement);
                     });
                     
-                    // Show count if more appointments exist
+                    // Mostrar un contador por si hay citas no visibles en vista previa del dia
                     if (appointments.length > 3) {
                         const moreElement = document.createElement('div');
                         moreElement.className = 'text-xs text-gray-500 text-center cursor-pointer hover:text-gray-700';
@@ -326,34 +341,8 @@
             }
         }
 
-        function getStatusClass(status) {
-            switch(status) {
-                case 'confirmed':
-                    return 'bg-green-500 text-white hover:bg-green-600';
-                case 'pending':
-                    return 'bg-yellow-500 text-white hover:bg-yellow-600';
-                case 'cancelled':
-                    return 'bg-red-500 text-white hover:bg-red-600';
-                default:
-                    return 'bg-gray-500 text-white hover:bg-gray-600';
-            }
-        }
-
-        function getStatusText(status) {
-            switch(status) {
-                case 'confirmed':
-                    return '✅ Confirmada';
-                case 'pending':
-                    return '⏳ Pendiente';
-                case 'cancelled':
-                    return '❌ Cancelada';
-                default:
-                    return '❓ Desconocido';
-            }
-        }
-
         function openSingleAppointmentModal(appointment, dateStr, appointmentIndex) {
-            // Create modal backdrop
+            // crear el modal de la cita
             const modalBackdrop = document.createElement('div');
             modalBackdrop.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
             modalBackdrop.onclick = (e) => {
@@ -362,7 +351,7 @@
                 }
             };
 
-            // Create modal content
+            // contenido del modal
             const modalContent = document.createElement('div');
             modalContent.className = 'bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full mx-4';
             
@@ -406,7 +395,7 @@
                             <div class="flex items-center space-x-2">
                                 <span class="text-sm text-gray-600">📊 Estado:</span>
                                 <span class="font-medium ${appointment.status === 'completed' ? 'text-green-700' : appointment.status === 'absent' ? 'text-yellow-700' : 'text-blue-700'}">
-                                    ${appointment.status === 'completed' ? '✅ Completada' : appointment.status === 'absent' ? 'Ausente' : '✅ Confirmada'}
+                                    ${appointment.status === 'completed' ? '✅ Asistida' : appointment.status === 'absent' ? '❌ No Asistió' : '✅ Confirmada'}
                                 </span>
                             </div>
                         </div>
@@ -415,25 +404,25 @@
                             <p class="text-sm text-gray-600 mb-3">¿Qué acción desea realizar con esta cita?</p>
                             <div class="flex flex-col space-y-2">
                                 ${appointment.status === 'confirmed' ? `
-                                    <button onclick="updateAppointmentStatus('${dateStr}', ${appointmentIndex}, 'completed')" 
+                                    <button onclick="updateAppointmentStatus('${dateStr}', ${appointmentIndex}, 'completed', ${appointment.id_cita})" 
                                             class="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
-                                        ✅ Marcar como Completada
+                                        ✅ Marcar como Asistida
                                     </button>
-                                    <button onclick="updateAppointmentStatus('${dateStr}', ${appointmentIndex}, 'absent')" 
+                                    <button onclick="updateAppointmentStatus('${dateStr}', ${appointmentIndex}, 'absent', ${appointment.id_cita})" 
                                             class="w-full px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors">
-                                        Marcar como Ausente
+                                        ❌ Marcar como No Asistió
                                     </button>
-                                    <button onclick="updateAppointmentStatus('${dateStr}', ${appointmentIndex}, 'cancelled')" 
+                                    <button onclick="updateAppointmentStatus('${dateStr}', ${appointmentIndex}, 'cancelled', ${appointment.id_cita})" 
                                             class="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">
                                         ❌ Cancelar Cita
                                     </button>
                                 ` : appointment.status === 'completed' ? `
                                     <div class="w-full px-4 py-2 bg-green-100 text-green-800 rounded-lg text-center">
-                                        ✅ Esta cita ya fue completada
+                                        ✅ Esta cita ya fue marcada como asistida
                                     </div>
                                 ` : appointment.status === 'absent' ? `
                                     <div class="w-full px-4 py-2 bg-yellow-100 text-yellow-800 rounded-lg text-center">
-                                        Paciente marcado como ausente
+                                        ❌ Paciente marcado como no asistió
                                     </div>
                                 ` : ''}
                             </div>
@@ -447,7 +436,7 @@
         }
 
         function openAppointmentsModal(dateStr, date) {
-            // Create modal backdrop
+            // abrir el modal de las citas
             const modalBackdrop = document.createElement('div');
             modalBackdrop.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
             modalBackdrop.onclick = (e) => {
@@ -456,7 +445,7 @@
                 }
             };
 
-            // Create modal content
+            // crear el modal de las citas de un dia
             const modalContent = document.createElement('div');
             modalContent.className = 'bg-white rounded-2xl shadow-2xl p-6 max-w-2xl w-full mx-4 max-h-96 overflow-hidden';
             
@@ -497,11 +486,11 @@
                 
                 if (appointment.status === 'completed') {
                     bgColor = 'bg-green-50 border-green-300';
-                    statusText = '✅ Completada';
+                    statusText = '✅ Asistida';
                     statusColor = 'text-green-700';
                 } else if (appointment.status === 'absent') {
                     bgColor = 'bg-yellow-50 border-yellow-300';
-                    statusText = 'Ausente';
+                    statusText = '❌ No Asistió';
                     statusColor = 'text-yellow-700';
                 }
                 
@@ -531,25 +520,25 @@
                                 </div>
                                 <div class="flex space-x-2">
                                     ${appointment.status === 'confirmed' ? `
-                                        <button onclick="updateAppointmentStatus('${dateStr}', ${index}, 'completed')" 
+                                        <button onclick="updateAppointmentStatus('${dateStr}', ${index}, 'completed', ${appointment.id_cita})" 
                                                 class="px-3 py-1 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors">
-                                            ✅ Completar
+                                            ✅ Asistida
                                         </button>
-                                        <button onclick="updateAppointmentStatus('${dateStr}', ${index}, 'absent')" 
+                                        <button onclick="updateAppointmentStatus('${dateStr}', ${index}, 'absent', ${appointment.id_cita})" 
                                                 class="px-3 py-1 bg-yellow-600 text-white text-sm rounded-lg hover:bg-yellow-700 transition-colors">
-                                             Ausente
+                                            ❌ No Asistió
                                         </button>
-                                        <button onclick="updateAppointmentStatus('${dateStr}', ${index}, 'cancelled')" 
+                                        <button onclick="updateAppointmentStatus('${dateStr}', ${index}, 'cancelled', ${appointment.id_cita})" 
                                                 class="px-3 py-1 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors">
                                             ❌ Cancelar
                                         </button>
                                     ` : appointment.status === 'completed' ? `
                                         <div class="px-3 py-1 bg-green-100 text-green-800 text-sm rounded-lg">
-                                            ✅ Completada
+                                            ✅ Asistida
                                         </div>
                                     ` : appointment.status === 'absent' ? `
                                         <div class="px-3 py-1 bg-yellow-100 text-yellow-800 text-sm rounded-lg">
-                                         Ausente
+                                            ❌ No Asistió
                                         </div>
                                     ` : ''}
                                 </div>
@@ -559,25 +548,25 @@
                 `;
             }).join('');
         }
-
-        function updateAppointmentStatus(dateStr, appointmentIndex, newStatus) {
+         // mensajes de confirmación, cancelación o asistida
+        async function updateAppointmentStatus(dateStr, appointmentIndex, newStatus, appointmentId) {
             const appointment = appointmentsData[dateStr][appointmentIndex];
             const patientName = appointment.patient;
             
             let confirmMessage = '';
             switch(newStatus) {
                 case 'completed':
-                    confirmMessage = `¿Confirmar que la cita de ${patientName} fue completada exitosamente?`;
+                    confirmMessage = `¿Confirmar que la cita de ${patientName} fue atendida exitosamente?`;
                     break;
                 case 'absent':
-                    confirmMessage = `¿Marcar a ${patientName} como ausente a su cita?`;
+                    confirmMessage = `¿Marcar a ${patientName} como no asistió a su cita?`;
                     break;
                 case 'cancelled':
                     confirmMessage = `¿Confirmar la cancelación de la cita de ${patientName}?`;
                     break;
             }
             
-            // Create custom confirmation modal
+            // Crear el modal de actualización del estado de la cita
             const confirmModal = document.createElement('div');
             confirmModal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
             
@@ -590,7 +579,7 @@
                                 class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors">
                             Cancelar
                         </button>
-                        <button onclick="confirmStatusUpdate('${dateStr}', ${appointmentIndex}, '${newStatus}'); this.closest('.fixed').remove()" 
+                        <button onclick="confirmStatusUpdate('${dateStr}', ${appointmentIndex}, '${newStatus}', ${appointmentId}); this.closest('.fixed').remove()" 
                                 class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
                             Confirmar
                         </button>
@@ -601,39 +590,60 @@
             document.body.appendChild(confirmModal);
         }
 
-        function confirmStatusUpdate(dateStr, appointmentIndex, newStatus) {
-            if (newStatus === 'cancelled') {
-                // Remove the appointment from confirmed appointments only if cancelled
-                appointmentsData[dateStr].splice(appointmentIndex, 1);
+        async function confirmStatusUpdate(dateStr, appointmentIndex, newStatus, appointmentId) {
+            try {
+                // Enviar a AJAX una solicitud para actualizar el estado de una cita
+                const response = await fetch('', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `action=update_status&appointmentId=${appointmentId}&newStatus=${newStatus}`
+                });
                 
-                // If no more appointments for this date, remove the date entry
-                if (appointmentsData[dateStr].length === 0) {
-                    delete appointmentsData[dateStr];
+                const result = await response.json();
+                
+                if (result.success) {
+                    if (newStatus === 'cancelled') {
+                        // remover la cita si esta es eliminada
+                        appointmentsData[dateStr].splice(appointmentIndex, 1);
+                        
+                        // si no hay más citas remueve la entrada de este dia
+                        if (appointmentsData[dateStr].length === 0) {
+                            delete appointmentsData[dateStr];
+                        }
+                    } else {
+                    
+                        // actualizar el estado de la cita para completado o ausente
+                        appointmentsData[dateStr][appointmentIndex].status = newStatus;
+                    }
+                    
+                    // refrescar el contenido del modal
+                    const modalSlotsContainer = document.getElementById('modalAppointments');
+                    if (modalSlotsContainer) {
+                        modalSlotsContainer.innerHTML = generateModalAppointments(dateStr);
+                    }
+                    
+                    // actualizar calendario y estadisticas
+                    generateCalendar();
+                    updateStatistics();
+                    showTodayAppointments();
+                    
+                    // mostrar mensaje de exito
+                    showSuccessMessage(newStatus);
+                } else {
+                    showErrorMessage('Error al actualizar el estado de la cita');
                 }
-            } else {
-                // Update the appointment status for completed and absent
-                appointmentsData[dateStr][appointmentIndex].status = newStatus;
+            } catch (error) {
+                console.error('Error:', error);
+                showErrorMessage('Error de conexión al actualizar la cita');
             }
-            
-            // Refresh the modal content
-            const modalSlotsContainer = document.getElementById('modalAppointments');
-            if (modalSlotsContainer) {
-                modalSlotsContainer.innerHTML = generateModalAppointments(dateStr);
-            }
-            
-            // Refresh calendar and statistics
-            generateCalendar();
-            updateStatistics();
-            showTodayAppointments();
-            
-            // Show success message
-            showSuccessMessage(newStatus);
         }
 
         function showSuccessMessage(status) {
             const messages = {
-                'completed': '✅ Cita marcada como completada',
-                'absent': ' Paciente marcado como ausente',
+                'completed': '✅ Cita marcada como asistida',
+                'absent': '❌ Paciente marcado como no asistió',
                 'cancelled': '❌ Cita cancelada exitosamente'
             };
             
@@ -643,12 +653,31 @@
             
             document.body.appendChild(toast);
             
-            // Animate in
+            // animación
             setTimeout(() => {
                 toast.classList.remove('translate-x-full');
             }, 100);
             
-            // Remove after 3 seconds
+            // desaparece despues de 3 segundos
+            setTimeout(() => {
+                toast.classList.add('translate-x-full');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        function showErrorMessage(message) { // mensaje de error
+            const toast = document.createElement('div');
+            toast.className = 'fixed top-4 right-4 bg-red-600 text-white px-6 py-3 rounded-lg shadow-lg z-50 transform translate-x-full transition-transform';
+            toast.textContent = message;
+            
+            document.body.appendChild(toast);
+            
+            // animación
+            setTimeout(() => {
+                toast.classList.remove('translate-x-full');
+            }, 100);
+            
+            // desaparece despues de 3 segundos
             setTimeout(() => {
                 toast.classList.add('translate-x-full');
                 setTimeout(() => toast.remove(), 300);
@@ -692,7 +721,7 @@
                     statusIcon = '✅ ';
                 } else if (appointment.status === 'absent') {
                     bgColor = 'bg-yellow-500 hover:bg-yellow-600';
-                    statusIcon = '👻 ';
+                    statusIcon = '❌ ';
                 }
                 
                 return `
@@ -717,8 +746,8 @@
             updateStatistics();
         }
 
-        // Initialize the application
+        // inicializar 
         initCalendar();
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'99144adf90ff55c3',t:'MTc2MDkxOTAyOS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</body>
 </html>
