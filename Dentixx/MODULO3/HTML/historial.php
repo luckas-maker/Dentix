@@ -1,3 +1,72 @@
+<?php
+include '../../config/database.php';
+
+// Función para obtener las citas anteriores junto con todos los datos
+function getAppointmentHistory() {
+    $pdo = getDBConnection();
+    $appointments = [];
+    
+    try {
+        $stmt = $pdo->prepare("
+            SELECT 
+                c.id_cita,
+                c.id_paciente,
+                u.nombre,
+                u.apellidos,
+                u.telefono,
+                c.tipo_servicio as treatment,
+                f.fecha,
+                f.hora_inicio as time,
+                c.estado_cita as status,
+                c.fecha_creacion
+            FROM citas c
+            LEFT JOIN usuarios u ON c.id_paciente = u.id_usuario
+            LEFT JOIN franjasdisponibles f ON c.id_franja = f.id_franja
+            WHERE c.estado_cita IN ('Asistida', 'No Asistio')
+            ORDER BY f.fecha DESC, f.hora_inicio DESC
+        ");
+        $stmt->execute();
+        
+        $appointments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+    } catch (Exception $e) {
+        error_log("Error getting appointment history: " . $e->getMessage());
+    }
+    
+    return $appointments;
+}
+
+// obtener citas desde la base de datos
+$dbAppointments = getAppointmentHistory();
+
+// convertir la información en el formato para en frond end
+$historyData = [];
+foreach ($dbAppointments as $dbAppt) {
+    $dateStr = $dbAppt['fecha'];
+    $patientName = $dbAppt['nombre'] . ' ' . $dbAppt['apellidos'];
+    
+    // convertir el status de la cita al formato del frontend
+    $status = 'completed'; // default
+    if ($dbAppt['status'] === 'No Asistio') {
+        $status = 'absent';
+    }
+    
+    if (!isset($historyData[$dateStr])) {
+        $historyData[$dateStr] = [];
+    }
+    
+    $historyData[$dateStr][] = [
+        'id_cita' => $dbAppt['id_cita'],
+        'time' => substr($dbAppt['time'], 0, 5),
+        'patient' => $patientName,
+        'treatment' => $dbAppt['treatment'],
+        'phone' => $dbAppt['telefono'],
+        'status' => $status,
+        'db_status' => $dbAppt['status']
+    ];
+}
+?>
+
 <!DOCTYPE html>
 <html lang="es" class="h-full">
 <head>
@@ -37,26 +106,26 @@
         </div>
 
         <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
-            <!-- History Content -->
+            <!-- Aqui va el historial -->
             <div class="lg:col-span-3">
                 <div class="bg-white rounded-2xl shadow-lg p-6 border border-purple-100">
-                    <!-- Filter Tabs -->
+                    <!-- Filtros -->
                     <div class="flex flex-wrap gap-2 mb-6">
                         <button onclick="filterHistory('all')" id="filterAll" class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium transition-colors">
                             📋 Todas las Citas
                         </button>
                         <button onclick="filterHistory('completed')" id="filterCompleted" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors">
-                            ✅ Solo Completadas
+                            ✅ Solo Asistidas
                         </button>
                         <button onclick="filterHistory('absent')" id="filterAbsent" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors">
-                            👻 Solo Ausentes
+                            👻 Solo No Asistieron
                         </button>
                     </div>
                     
                     <!-- Search Bar -->
                     <div class="mb-6">
                         <div class="relative">
-                            <input type="text" id="searchInput" placeholder="Buscar por paciente, tratamiento o fecha..." 
+                            <input type="text" id="searchInput" placeholder="Buscar por paciente, tratamiento o fecha (YYYY-MM-DD)..." 
                                    class="w-full px-4 py-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                                    oninput="searchHistory()">
                             <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -65,16 +134,16 @@
                         </div>
                     </div>
                     
-                    <!-- History Content -->
+                    
                     <div id="historyContent" class="space-y-4 max-h-96 overflow-y-auto">
-                        <!-- History items will be populated here -->
+                        <!-- Todas las citas se muestran aqui -->
                     </div>
                 </div>
             </div>
 
-            <!-- Statistics Panel -->
+            <!-- Panel de estadisticas -->
             <div class="space-y-6">
-                <!-- Summary Cards -->
+                <!-- resumen -->
                 <div class="bg-white rounded-2xl shadow-lg p-4 border border-purple-100">
                     <h3 class="text-lg font-bold text-gray-800 mb-4">📊 Resumen Total</h3>
                     
@@ -82,14 +151,14 @@
                         <div class="bg-green-50 p-4 rounded-lg border border-green-200">
                             <div class="text-center">
                                 <div class="text-3xl font-bold text-green-600" id="completedTotal">0</div>
-                                <div class="text-sm text-green-700 font-medium">Citas Completadas</div>
+                                <div class="text-sm text-green-700 font-medium">Citas Asistidas</div>
                             </div>
                         </div>
                         
                         <div class="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
                             <div class="text-center">
                                 <div class="text-3xl font-bold text-yellow-600" id="absentTotal">0</div>
-                                <div class="text-sm text-yellow-700 font-medium">Pacientes Ausentes</div>
+                                <div class="text-sm text-yellow-700 font-medium">No Asistieron</div>
                             </div>
                         </div>
                         
@@ -102,11 +171,11 @@
                     </div>
                 </div>
 
-                <!-- Monthly Breakdown -->
+             
                 <div class="bg-white rounded-2xl shadow-lg p-4 border border-purple-100">
                     <h3 class="text-lg font-bold text-gray-800 mb-3">📅 Este Mes</h3>
                     <div id="monthlyBreakdown" class="space-y-2 text-sm">
-                        <!-- Monthly stats will be populated here -->
+                        <!-- estadisticas del mes-->
                     </div>
                 </div>
             </div>
@@ -114,117 +183,11 @@
     </div>
 
     <script>
-        let historyData = {};
+        let historyData = <?php echo json_encode($historyData); ?>;
         let currentFilter = 'all';
 
-        // Sample history data
-        function initSampleHistoryData() {
-            const today = new Date();
-            const currentMonth = today.getMonth();
-            const currentYear = today.getFullYear();
-
-            // Generate sample completed and absent appointments
-            const sampleHistory = [
-                {
-                    date: new Date(currentYear, currentMonth - 1, 15),
-                    time: '09:00',
-                    patient: 'Ana García',
-                    treatment: 'Limpieza dental',
-                    phone: '555-0201',
-                    status: 'completed'
-                },
-                {
-                    date: new Date(currentYear, currentMonth - 1, 18),
-                    time: '14:30',
-                    patient: 'Pedro Martín',
-                    treatment: 'Empaste',
-                    phone: '555-0202',
-                    status: 'absent'
-                },
-                {
-                    date: new Date(currentYear, currentMonth - 1, 22),
-                    time: '11:00',
-                    patient: 'Laura Sánchez',
-                    treatment: 'Ortodoncia - Revisión',
-                    phone: '555-0203',
-                    status: 'completed'
-                },
-                {
-                    date: new Date(currentYear, currentMonth, 3),
-                    time: '16:00',
-                    patient: 'José Ramírez',
-                    treatment: 'Extracción',
-                    phone: '555-0204',
-                    status: 'completed'
-                },
-                {
-                    date: new Date(currentYear, currentMonth, 7),
-                    time: '10:30',
-                    patient: 'Carmen Flores',
-                    treatment: 'Blanqueamiento',
-                    phone: '555-0205',
-                    status: 'absent'
-                },
-                {
-                    date: new Date(currentYear, currentMonth, 12),
-                    time: '15:00',
-                    patient: 'Roberto Díaz',
-                    treatment: 'Implante dental',
-                    phone: '555-0206',
-                    status: 'completed'
-                },
-                {
-                    date: new Date(currentYear, currentMonth, 14),
-                    time: '09:30',
-                    patient: 'Isabel Moreno',
-                    treatment: 'Endodoncia',
-                    phone: '555-0207',
-                    status: 'completed'
-                },
-                {
-                    date: new Date(currentYear, currentMonth, 19),
-                    time: '13:30',
-                    patient: 'Francisco Ruiz',
-                    treatment: 'Prótesis dental',
-                    phone: '555-0208',
-                    status: 'absent'
-                },
-                {
-                    date: new Date(currentYear, currentMonth, 21),
-                    time: '11:30',
-                    patient: 'Mónica Castro',
-                    treatment: 'Consulta general',
-                    phone: '555-0209',
-                    status: 'completed'
-                },
-                {
-                    date: new Date(currentYear, currentMonth, 25),
-                    time: '17:00',
-                    patient: 'Antonio López',
-                    treatment: 'Limpieza dental',
-                    phone: '555-0210',
-                    status: 'completed'
-                }
-            ];
-
-            // Organize history by date
-            sampleHistory.forEach(appointment => {
-                const dateStr = appointment.date.toISOString().split('T')[0];
-                if (!historyData[dateStr]) {
-                    historyData[dateStr] = [];
-                }
-                historyData[dateStr].push(appointment);
-            });
-
-            // Sort appointments by time for each date
-            Object.keys(historyData).forEach(dateStr => {
-                historyData[dateStr].sort((a, b) => a.time.localeCompare(b.time));
-            });
-        }
-
-        // Initialize the history interface
+        //inicializar el historial
         function initHistory() {
-            initSampleHistoryData();
             updateCurrentDate();
             generateHistoryContent('all');
             updateHistorySummary();
@@ -244,7 +207,7 @@
         function generateHistoryContent(filter) {
             const historyAppointments = [];
             
-            // Collect all completed and absent appointments
+            // Todas las citas(ausentes y completadas)
             Object.keys(historyData).forEach(dateStr => {
                 historyData[dateStr].forEach(appointment => {
                     historyAppointments.push({
@@ -255,13 +218,13 @@
                 });
             });
             
-            // Filter appointments based on selected filter
+            // filtrar segun el filtro seleccionada
             const filteredAppointments = historyAppointments.filter(appointment => {
                 if (filter === 'all') return true;
                 return appointment.status === filter;
             });
             
-            // Sort by date (most recent first)
+            // ordenar por fecha, los más recientes primero
             filteredAppointments.sort((a, b) => b.date - a.date);
             
             const historyContent = document.getElementById('historyContent');
@@ -280,12 +243,12 @@
                 });
                 
                 let bgColor = 'bg-green-50 border-green-300';
-                let statusText = '✅ Completada';
+                let statusText = '✅ Asistida';
                 let statusColor = 'text-green-700';
                 
                 if (appointment.status === 'absent') {
                     bgColor = 'bg-yellow-50 border-yellow-300';
-                    statusText = '👻 Ausente';
+                    statusText = '❌ No Asistió';
                     statusColor = 'text-yellow-700';
                 }
                 
@@ -319,11 +282,11 @@
         }
 
         function openAppointmentDetails(dateStr, patientName) {
-            // Find the appointment
+            // encontrar la cita
             const appointment = historyData[dateStr].find(apt => apt.patient === patientName);
             if (!appointment) return;
 
-            // Create modal backdrop
+            // crear el modal
             const modalBackdrop = document.createElement('div');
             modalBackdrop.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
             modalBackdrop.onclick = (e) => {
@@ -332,7 +295,7 @@
                 }
             };
 
-            // Create modal content
+            // el contenido del modal de cada cita
             const modalContent = document.createElement('div');
             modalContent.className = 'bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full mx-4';
             
@@ -345,12 +308,12 @@
             });
 
             let bgColor = 'bg-green-50 border-green-300';
-            let statusText = '✅ Completada';
+            let statusText = '✅ Asistida';
             let statusColor = 'text-green-700';
             
             if (appointment.status === 'absent') {
                 bgColor = 'bg-yellow-50 border-yellow-300';
-                statusText = '👻 Ausente';
+                statusText = '❌ No Asistió';
                 statusColor = 'text-yellow-700';
             }
 
@@ -399,7 +362,6 @@
         function filterHistory(filter) {
             currentFilter = filter;
             
-            // Update button styles
             document.getElementById('filterAll').className = filter === 'all' 
                 ? 'px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium transition-colors'
                 : 'px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors';
@@ -412,7 +374,7 @@
                 ? 'px-4 py-2 bg-yellow-600 text-white rounded-lg text-sm font-medium transition-colors'
                 : 'px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors';
             
-            // Update content
+            // mostrar el contenido acorde al filtro aplicado
             generateHistoryContent(filter);
         }
 
@@ -458,11 +420,11 @@
             
             document.getElementById('monthlyBreakdown').innerHTML = `
                 <div class="flex justify-between items-center p-2 bg-green-50 rounded border border-green-200">
-                    <span class="text-green-700">✅ Completadas:</span>
+                    <span class="text-green-700">✅ Asistidas:</span>
                     <span class="font-bold text-green-600">${monthlyCompleted}</span>
                 </div>
                 <div class="flex justify-between items-center p-2 bg-yellow-50 rounded border border-yellow-200">
-                    <span class="text-yellow-700">👻 Ausentes:</span>
+                    <span class="text-yellow-700">❌ No Asistieron:</span>
                     <span class="font-bold text-yellow-600">${monthlyAbsent}</span>
                 </div>
                 <div class="flex justify-between items-center p-2 bg-purple-50 rounded border border-purple-200">
@@ -473,12 +435,12 @@
         }
 
         function searchHistory() {
-            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
             const historyContent = document.getElementById('historyContent');
             
             const historyAppointments = [];
             
-            // Collect all appointments
+            // mostrar todos acorde la busqueda
             Object.keys(historyData).forEach(dateStr => {
                 historyData[dateStr].forEach(appointment => {
                     historyAppointments.push({
@@ -489,15 +451,38 @@
                 });
             });
             
-            // Filter by search term and current filter
+            // filtrar por termino de busqueda y filtro
             const filteredAppointments = historyAppointments.filter(appointment => {
                 const matchesFilter = currentFilter === 'all' || appointment.status === currentFilter;
-                const searchableText = `${appointment.patient} ${appointment.treatment} ${appointment.date.toLocaleDateString('es-ES')}`.toLowerCase();
-                const matchesSearch = searchableText.includes(searchTerm);
+                
+                if (!searchTerm) return matchesFilter;
+                
+                //buscar el nombre del paciente
+                const patientMatch = appointment.patient.toLowerCase().includes(searchTerm);
+                
+                // buscar por tratamiento
+                const treatmentMatch = appointment.treatment.toLowerCase().includes(searchTerm);
+                
+                //buscar por fecha (format: YYYY-MM-DD)
+                const dateMatch = appointment.dateStr.includes(searchTerm);
+                
+                //buscar por fecha formateada (DD/MM/YYYY)
+                const formattedDate = appointment.date.toLocaleDateString('es-ES');
+                const formattedDateMatch = formattedDate.includes(searchTerm);
+                
+                const spanishDate = appointment.date.toLocaleDateString('es-ES', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                });
+                const spanishDateMatch = spanishDate.includes(searchTerm);
+                
+                const matchesSearch = patientMatch || treatmentMatch || dateMatch || formattedDateMatch || spanishDateMatch;
+                
                 return matchesFilter && matchesSearch;
             });
             
-            // Sort by date (most recent first)
+            // ordenados por fecha
             filteredAppointments.sort((a, b) => b.date - a.date);
             
             if (filteredAppointments.length === 0) {
@@ -514,12 +499,12 @@
                 });
                 
                 let bgColor = 'bg-green-50 border-green-300';
-                let statusText = '✅ Completada';
+                let statusText = '✅ Asistida';
                 let statusColor = 'text-green-700';
                 
                 if (appointment.status === 'absent') {
                     bgColor = 'bg-yellow-50 border-yellow-300';
-                    statusText = '👻 Ausente';
+                    statusText = '❌ No Asistió';
                     statusColor = 'text-yellow-700';
                 }
                 
@@ -551,98 +536,12 @@
                 `;
             }).join('');
         }
+                
 
-        function exportHistory() {
-            const historyAppointments = [];
-            
-            // Collect all appointments
-            Object.keys(historyData).forEach(dateStr => {
-                historyData[dateStr].forEach(appointment => {
-                    historyAppointments.push({
-                        ...appointment,
-                        dateStr: dateStr,
-                        date: new Date(dateStr)
-                    });
-                });
-            });
-            
-            // Sort by date
-            historyAppointments.sort((a, b) => b.date - a.date);
-            
-            // Create CSV content
-            let csvContent = 'Fecha,Hora,Paciente,Tratamiento,Teléfono,Estado\n';
-            historyAppointments.forEach(appointment => {
-                const dateFormatted = appointment.date.toLocaleDateString('es-ES');
-                const statusText = appointment.status === 'completed' ? 'Completada' : 'Ausente';
-                csvContent += `"${dateFormatted}","${appointment.time}","${appointment.patient}","${appointment.treatment}","${appointment.phone}","${statusText}"\n`;
-            });
-            
-            // Create and download file
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
-            link.setAttribute('href', url);
-            link.setAttribute('download', `historial_citas_${new Date().toISOString().split('T')[0]}.csv`);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            // Show success message
-            showSuccessMessage('📄 Historial exportado exitosamente');
-        }
-
-        function clearOldHistory() {
-            // Create confirmation dialog
-            const confirmModal = document.createElement('div');
-            confirmModal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
-            
-            confirmModal.innerHTML = `
-                <div class="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full mx-4">
-                    <h3 class="text-lg font-bold text-gray-800 mb-4">⚠️ Confirmar Limpieza</h3>
-                    <p class="text-gray-600 mb-6">¿Está seguro de que desea eliminar todas las citas de hace más de 3 meses del historial?</p>
-                    <div class="flex space-x-3 justify-end">
-                        <button onclick="this.closest('.fixed').remove()" 
-                                class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors">
-                            Cancelar
-                        </button>
-                        <button onclick="confirmClearHistory(); this.closest('.fixed').remove()" 
-                                class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">
-                            Eliminar
-                        </button>
-                    </div>
-                </div>
-            `;
-            
-            document.body.appendChild(confirmModal);
-        }
-
-        function confirmClearHistory() {
-            const threeMonthsAgo = new Date();
-            threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-            
-            let removedCount = 0;
-            
-            Object.keys(historyData).forEach(dateStr => {
-                const date = new Date(dateStr);
-                if (date < threeMonthsAgo) {
-                    removedCount += historyData[dateStr].length;
-                    delete historyData[dateStr];
-                }
-            });
-            
-            // Refresh interface
-            generateHistoryContent(currentFilter);
-            updateHistorySummary();
-            updateMonthlyBreakdown();
-            
-            // Show success message
-            showSuccessMessage(`🗑️ Se eliminaron ${removedCount} citas del historial`);
-        }
 
         function showSuccessMessage(message) {
             const toast = document.createElement('div');
-            toast.className = 'fixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg z-50 transform translate-x-full transition-transform';
+            toast.className = 'f78ixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg z-50 transform translate-x-full transition-transform';
             toast.textContent = message;
             
             document.body.appendChild(toast);
@@ -657,7 +556,7 @@
             }, 3000);
         }
 
-        // Initialize the application
+        // inicializar el historial
         initHistory();
     </script>
 </body>
