@@ -172,34 +172,7 @@ try {
     </style>
 </head>
 <body class="bg-gray-50">
-    <!-- Header -->
-    <header class="bg-dental-gradient text-white shadow-lg">
-        <div class="container mx-auto px-4 py-4">
-            <div class="flex justify-between items-center">
-                <div class="flex items-center space-x-4">
-                    <a href="../../MODULO3/HTML/gestiondisponibilidad.html">
-                        <img src="../../assets/img/logo-writopeks.jpg" alt="Writo Peks Consultorio Dental" class="h-8 w-auto">
-                    </a>
-                    <h1 class="text-xl font-bold">Consultorio Dental Dentix</h1>
-                    <nav class="hidden md:flex space-x-4 ml-8">
-                        <button onclick="window.location.href='../../MODULO3/HTML/agenda.html'" class="text-white font-bold hover:text-gray-200 transition-colors">Agendar citas</button>
-                        <button onclick="window.location.href='../../MODULO3/HTML/citasolicitadas.html'" class="text-white font-bold hover:text-gray-200 transition-colors">Citas solicitadas</button>
-                        <button onclick="window.location.href='../../MODULO3/HTML/gestiondisponibilidad.html'" class="text-white font-bold hover:text-gray-200 transition-colors">Gestion de disponibiliudad</button>
-                        <button onclick="window.location.href='../../MODULO3/HTML/historial.html'" class="text-white font-bold hover:text-gray-200 transition-colors">Historial de citas</button>
-                    </nav>
-                    </nav>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <span class="text-sm"><?php echo htmlspecialchars($usuario['nombre'] . ' ' . $usuario['apellidos']); ?></span>
-                    <button onclick="confirmarCerrarSesion()" class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-sm transition-colors">
-                        <i class="fas fa-sign-out-alt mr-1"></i>Cerrar Sesión
-                    </button>
-                </div>
-            </div>
-        </div>
-    </header>
-
-    <!-- Main Content -->
+  <!-- Main Content -->
     <main class="container mx-auto px-4 py-8">
         <?php if (!empty($mensaje)): ?>
         <div class="mb-6 p-4 rounded-lg <?php echo $tipo_mensaje === 'success' ? 'bg-green-100 text-green-700 border border-green-300' : 'bg-red-100 text-red-700 border border-red-300'; ?>">
@@ -399,5 +372,6 @@ function cancelarCerrarSesion() {
         </div>
     </div>
 </div>
+
 
 </html>
