@@ -4,9 +4,9 @@ session_start();
 // Si ya está logueado, redirigir automáticamente
 if (isset($_SESSION['user_id'])) {
     if ($_SESSION['user_role'] === 'Odontologo') {
-        header('Location: miperfilodontologo.php');
+        header('Location: .../MODULO3/HTML/dashboard.php');
     } else {
-        header('Location: ../../MODULO2/HTML/veragendas.php');
+        header('Location: ../../MODULO2/HTML/dashboardclient.php');
     }
     exit;
 }
@@ -932,3 +932,4 @@ if (isset($_GET['logout'])) {
 </script>
 </body>
 </html>
+
