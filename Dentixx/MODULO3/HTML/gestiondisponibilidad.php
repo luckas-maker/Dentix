@@ -209,6 +209,7 @@ $availabilityData = getAvailabilityData();
 </head>
 <body class="h-full bg-gradient-to-br from-blue-50 to-indigo-100 font-sans">
     <div class="min-h-full p-6">
+        
         <!-- Cabecera(?) -->
         <div class="max-w-7xl mx-auto mb-8">
             <div class="bg-white rounded-2xl shadow-lg p-6 border border-blue-100">
@@ -328,7 +329,7 @@ $availabilityData = getAvailabilityData();
         let selectedDateStr = '';
         let availabilityData = <?php echo json_encode($availabilityData); ?>;
 
-        // Initialize the calendar
+        // Inicializa el calendario
         function initCalendar() {
             updateCurrentDate();
             generateCalendar();
@@ -437,45 +438,69 @@ $availabilityData = getAvailabilityData();
         }
 
         async function generateTimeSlots() {
-            if (!selectedDateStr) {
-                alert('Por favor seleccione una fecha primero');
-                return;
-            }
+    if (!selectedDateStr) {
+        alert('Por favor seleccione una fecha primero');
+        return;
+    }
 
-            const startTime = document.getElementById('startTime').value;
-            const endTime = document.getElementById('endTime').value;
-            const duration = parseInt(document.getElementById('slotDuration').value);
+    const startTime = document.getElementById('startTime').value;
+    const endTime = document.getElementById('endTime').value;
+    const duration = parseInt(document.getElementById('slotDuration').value);
 
-            if (!startTime || !endTime) {
-                alert('Por favor complete los horarios de inicio y fin');
-                return;
-            }
+    if (!startTime || !endTime) {
+        alert('Por favor complete los horarios de inicio y fin');
+        return;
+    }
 
-            const slots = [];
-            const start = new Date(`2000-01-01T${startTime}:00`);
-            const end = new Date(`2000-01-01T${endTime}:00`);
+    // obtener las franjas existentes de esta fecha
+    const existingSlots = availabilityData[selectedDateStr] || [];
+    const existingTimes = new Set(existingSlots.map(slot => slot.time));
 
-            let current = new Date(start);
-            while (current < end) {
-                const timeStr = current.toTimeString().slice(0, 5);
-                slots.push({
-                    time: timeStr,
-                    available: true // This ensures they're marked as available
-                });
-                current.setMinutes(current.getMinutes() + duration);
-            }
+    const newSlots = [];
+    const start = new Date(`2000-01-01T${startTime}:00`);
+    const end = new Date(`2000-01-01T${endTime}:00`);
 
-            // Save to database - all slots will be saved as 'Disponible'
-            const success = await saveSlotsToDatabase(selectedDateStr, slots);
-            if (success) {
-                // Update local data with correct status
-                await loadAvailabilityData(selectedDateStr);
-                generateCalendar();
-                displayTimeSlots();
-            } else {
-                alert('Error al guardar los horarios en la base de datos');
-            }
+    let current = new Date(start);
+    while (current < end) {
+        const timeStr = current.toTimeString().slice(0, 5);
+        
+        // solo añadir si franjas con estas horas no existen
+        if (!existingTimes.has(timeStr)) {
+            newSlots.push({
+                time: timeStr,
+                available: true
+            });
         }
+        
+        current.setMinutes(current.getMinutes() + duration);
+    }
+
+    if (newSlots.length === 0) {
+        alert('No hay nuevos horarios para agregar. Todos los horarios generados ya existen.');
+        return;
+    }
+
+    // Combine existing slots with new slots
+    //
+    const allSlots = [...existingSlots.map(slot => ({
+        time: slot.time,
+        available: slot.available
+    })), ...newSlots];
+
+    // Save combined slots to database
+    const success = await saveSlotsToDatabase(selectedDateStr, allSlots);
+    if (success) {
+        // Update local data with correct status
+        await loadAvailabilityData(selectedDateStr);
+        generateCalendar();
+        displayTimeSlots();
+        alert(`Se agregaron ${newSlots.length} nuevos horarios`);
+    } else {
+        alert('Error al guardar los horarios en la base de datos');
+    }
+}
+
+
 
         async function saveSlotsToDatabase(date, slots) {
             try {
@@ -674,4 +699,3 @@ $availabilityData = getAvailabilityData();
     </script>
 </body>
 </html>
-
