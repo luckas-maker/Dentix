@@ -62,14 +62,6 @@
           </div>
           
           <div class="flex space-x-3 ml-4">
-            <!-- Botón de Sincronizar Asistencias -->
-            <button onclick="sincronizarAsistencias()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center">
-              <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-              </svg>
-              Sincronizar Asistencias
-            </button>
-            
             <button onclick="mostrarAdvertencias()" class="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 flex items-center">
               <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.35 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
@@ -118,8 +110,8 @@
   <!-- Scripts -->
   <script>
     let pacientes = [];
-    let dropdownAbierto = null;
     let pacientesFiltrados = [];
+    let pacienteSeleccionadoNombre = '';
 
     // Fecha actual
     document.getElementById("currentDate").textContent = new Date().toLocaleDateString("es-ES", { 
@@ -148,52 +140,6 @@
         searchClear.classList.add('hidden');
         searchInput.focus();
     });
-
-    // Cerrar dropdown al hacer clic fuera
-    document.addEventListener('click', function(event) {
-        if (dropdownAbierto) {
-            const dropdown = document.getElementById(dropdownAbierto);
-            const button = document.querySelector(`button[onclick="toggleDropdown(${dropdownAbierto.split('-')[1]}, event)"]`);
-            
-            if (dropdown && button) {
-                if (!dropdown.contains(event.target) && !button.contains(event.target)) {
-                    dropdown.classList.add('hidden');
-                    dropdownAbierto = null;
-                }
-            }
-        }
-    });
-
-    // Cerrar dropdown al presionar ESC
-    document.addEventListener('keydown', function(event) {
-        if (event.key === 'Escape' && dropdownAbierto) {
-            const dropdown = document.getElementById(dropdownAbierto);
-            if (dropdown) {
-                dropdown.classList.add('hidden');
-                dropdownAbierto = null;
-            }
-        }
-    });
-
-    // Toggle dropdown mejorado
-    function toggleDropdown(id, event) {
-        event.stopPropagation();
-        
-        const dropdownId = `dropdown-${id}`;
-        const dropdown = document.getElementById(dropdownId);
-        
-        // Cerrar dropdown anterior si existe
-        if (dropdownAbierto && dropdownAbierto !== dropdownId) {
-            const prevDropdown = document.getElementById(dropdownAbierto);
-            if (prevDropdown) prevDropdown.classList.add('hidden');
-        }
-        
-        // Toggle dropdown actual
-        if (dropdown) {
-            dropdown.classList.toggle('hidden');
-            dropdownAbierto = dropdown.classList.contains('hidden') ? null : dropdownId;
-        }
-    }
 
     // Filtrar pacientes en tiempo real
     function filtrarPacientes(termino) {
@@ -281,62 +227,6 @@
         }
     }
 
-    // Función para sincronizar asistencias
-    async function sincronizarAsistencias() {
-        try {
-            // Mostrar indicador de carga
-            const botonSincronizar = event.target;
-            const textoOriginal = botonSincronizar.innerHTML;
-            botonSincronizar.innerHTML = `
-                <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                Sincronizando...
-            `;
-            botonSincronizar.disabled = true;
-
-            const response = await fetch('sincronizar_asistencias.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                }
-            });
-            
-            const text = await response.text();
-            let data;
-            
-            try {
-                data = JSON.parse(text);
-            } catch (e) {
-                console.error('Respuesta no JSON:', text);
-                throw new Error('El servidor respondió con formato incorrecto');
-            }
-            
-            if (data.success) {
-                // Mostrar mensaje de éxito
-                showSuccessMessage('✅ ' + data.message);
-                
-                // Recargar los datos de pacientes
-                await cargarPacientes();
-            } else {
-                throw new Error(data.message);
-            }
-            
-        } catch (error) {
-            console.error('Error:', error);
-            showErrorMessage('❌ Error al sincronizar: ' + error.message);
-        } finally {
-            // Restaurar el botón
-            setTimeout(() => {
-                botonSincronizar.innerHTML = `
-                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                    </svg>
-                    Sincronizar Asistencias
-                `;
-                botonSincronizar.disabled = false;
-            }, 1000);
-        }
-    }
-
     // Renderizar tabla
     function renderTable() {
         const tbody = document.getElementById("patientsTable");
@@ -397,32 +287,249 @@
                     </span>
                 </td>
                 <td class="px-4 py-2 text-center">
-                    <div class="relative inline-block text-left">
-                        <button onclick="toggleDropdown(${p.id_usuario}, event)" class="px-3 py-1 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-xs flex items-center">
-                            Acciones
-                            <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                            </svg>
-                        </button>
-                        <div id="dropdown-${p.id_usuario}" class="hidden absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-xl border border-gray-200 z-50">
-                            <button onclick="event.stopPropagation(); registrarAsistencia(${p.id_usuario})" class="block w-full text-left px-4 py-2 text-sm text-green-700 hover:bg-green-50 rounded-t-lg border-b border-gray-100">
-                                ✅ Registrar Asistencia
-                            </button>
-                            <button onclick="event.stopPropagation(); bloquearPaciente(${p.id_usuario})" class="block w-full text-left px-4 py-2 text-sm text-yellow-700 hover:bg-yellow-50 border-b border-gray-100">
-                                ⚠️ Bloquear Cuenta
-                            </button>
-                            <button onclick="event.stopPropagation(); desbloquearPaciente(${p.id_usuario})" class="block w-full text-left px-4 py-2 text-sm text-blue-700 hover:bg-blue-50 border-b border-gray-100">
-                                🔓 Desbloquear Cuenta
-                            </button>
-                            <button onclick="event.stopPropagation(); eliminarPaciente(${p.id_usuario})" class="block w-full text-left px-4 py-2 text-sm text-red-700 hover:bg-red-50 rounded-b-lg">
-                                🗑️ Eliminar Paciente
-                            </button>
-                        </div>
-                    </div>
+                    <button onclick="abrirModalAcciones(${p.id_usuario}, '${p.nombre} ${p.apellidos}')" 
+                            class="px-3 py-1 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-xs flex items-center justify-center mx-auto">
+                        Acciones
+                        <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
                 </td>
             `;
             tbody.appendChild(tr);
         });
+    }
+
+    // Modal de acciones - VERSIÓN CORREGIDA
+    function abrirModalAcciones(id, nombre) {
+        pacienteSeleccionadoNombre = nombre;
+        
+        const modal = document.createElement("div");
+        modal.className = "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50";
+        modal.id = "modalAcciones";
+        modal.innerHTML = `
+            <div class="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full mx-4">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-bold text-gray-800">Acciones para</h3>
+                    <button onclick="cerrarModalAcciones()" class="text-gray-500 hover:text-gray-700 text-2xl">×</button>
+                </div>
+                
+                <p class="text-sm text-gray-600 mb-6 font-semibold">${nombre}</p>
+                
+                <div class="space-y-2">
+                    <button onclick="marcarAsistenciaModal(${id})" class="w-full px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 flex items-center justify-center text-sm">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        Marcar Asistencia
+                    </button>
+                    
+                    <button onclick="marcarNoAsistioModal(${id})" class="w-full px-4 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 flex items-center justify-center text-sm">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                        Marcar No Asistió
+                    </button>
+                    
+                    <button onclick="bloquearPacienteModal(${id})" class="w-full px-4 py-3 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 flex items-center justify-center text-sm">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                        </svg>
+                        Bloquear Cuenta
+                    </button>
+                    
+                    <button onclick="desbloquearPacienteModal(${id})" class="w-full px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center justify-center text-sm">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"></path>
+                        </svg>
+                        Desbloquear Cuenta
+                    </button>
+                    
+                    <button onclick="eliminarPacienteModal(${id})" class="w-full px-4 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 flex items-center justify-center text-sm">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                        Eliminar Paciente
+                    </button>
+                </div>
+                
+                <div class="mt-4 text-center">
+                    <button onclick="cerrarModalAcciones()" class="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm">
+                        Cancelar
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        // Cerrar modal al hacer clic fuera
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                cerrarModalAcciones();
+            }
+        });
+        
+        // Cerrar modal con ESC
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                cerrarModalAcciones();
+            }
+        });
+    }
+
+    function cerrarModalAcciones() {
+        const modal = document.getElementById('modalAcciones');
+        if (modal) {
+            modal.remove();
+        }
+        pacienteSeleccionadoNombre = '';
+    }
+
+    // Funciones del modal - VERSIÓN CORREGIDA (reciben el ID como parámetro)
+    async function marcarAsistenciaModal(id) {
+        cerrarModalAcciones();
+        if (!confirm(`¿Está seguro de marcar como ASISTIDA la cita de hoy de ${pacienteSeleccionadoNombre}?`)) return;
+        
+        try {
+            const response = await fetch('acciones_admin.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    accion: 'marcar_asistencia',
+                    id_usuario: id
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.success) {
+                alert(data.message);
+                await cargarPacientes();
+            } else {
+                alert('Error: ' + data.message);
+            }
+        } catch (error) {
+            alert('Error de conexión: ' + error.message);
+        }
+    }
+
+    async function marcarNoAsistioModal(id) {
+        cerrarModalAcciones();
+        if (!confirm(`¿Está seguro de marcar como NO ASISTIÓ la cita de hoy de ${pacienteSeleccionadoNombre}?`)) return;
+        
+        try {
+            const response = await fetch('acciones_admin.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    accion: 'marcar_no_asistio',
+                    id_usuario: id
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.success) {
+                alert(data.message);
+                await cargarPacientes();
+            } else {
+                alert('Error: ' + data.message);
+            }
+        } catch (error) {
+            alert('Error de conexión: ' + error.message);
+        }
+    }
+
+    async function bloquearPacienteModal(id) {
+        cerrarModalAcciones();
+        if (!confirm(`¿Está seguro de BLOQUEAR la cuenta de ${pacienteSeleccionadoNombre}?`)) return;
+        
+        try {
+            const response = await fetch('acciones_admin.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    accion: 'bloquear_paciente',
+                    id_usuario: id
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.success) {
+                alert(data.message);
+                await cargarPacientes();
+            } else {
+                alert('Error: ' + data.message);
+            }
+        } catch (error) {
+            alert('Error de conexión: ' + error.message);
+        }
+    }
+
+    async function desbloquearPacienteModal(id) {
+        cerrarModalAcciones();
+        if (!confirm(`¿Está seguro de DESBLOQUEAR la cuenta de ${pacienteSeleccionadoNombre}?`)) return;
+        
+        try {
+            const response = await fetch('acciones_admin.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    accion: 'desbloquear_paciente',
+                    id_usuario: id
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.success) {
+                alert(data.message);
+                await cargarPacientes();
+            } else {
+                alert('Error: ' + data.message);
+            }
+        } catch (error) {
+            alert('Error de conexión: ' + error.message);
+        }
+    }
+
+    async function eliminarPacienteModal(id) {
+        cerrarModalAcciones();
+        if (!confirm(`¿Está seguro de ELIMINAR permanentemente a ${pacienteSeleccionadoNombre}? Esta acción no se puede deshacer.`)) return;
+        
+        try {
+            const response = await fetch('acciones_admin.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    accion: 'eliminar_paciente',
+                    id_usuario: id
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.success) {
+                alert(data.message);
+                await cargarPacientes();
+            } else {
+                alert('Error: ' + data.message);
+            }
+        } catch (error) {
+            alert('Error de conexión: ' + error.message);
+        }
     }
 
     // Mostrar advertencias de pacientes con 3+ faltas
@@ -453,78 +560,6 @@
         }
     }
 
-    // Funciones de acciones
-    async function ejecutarAccion(accion, id_usuario) {
-        // Cerrar dropdown antes de ejecutar la acción
-        if (dropdownAbierto) {
-            const dropdown = document.getElementById(dropdownAbierto);
-            dropdown.classList.add('hidden');
-            dropdownAbierto = null;
-        }
-
-        const paciente = pacientes.find(p => p.id_usuario === id_usuario);
-        if (!paciente) return;
-
-        try {
-            const response = await fetch('acciones_admin.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    accion: accion,
-                    id_usuario: id_usuario
-                })
-            });
-
-            const text = await response.text();
-            let data;
-            
-            try {
-                data = JSON.parse(text);
-            } catch (e) {
-                console.error('Respuesta no JSON:', text);
-                throw new Error('El servidor respondió con formato incorrecto');
-            }
-            
-            if (data.success) {
-                alert(data.message);
-                await cargarPacientes(); // Recargar datos
-            } else {
-                alert('Error: ' + data.message);
-            }
-        } catch (error) {
-            alert('Error de conexión: ' + error.message);
-        }
-    }
-
-    // Registrar asistencia
-    function registrarAsistencia(id) {
-        if (!confirm('¿Está seguro de marcar la asistencia de este paciente?')) return;
-        ejecutarAccion('registrar_asistencia', id);
-    }
-
-    // Bloquear paciente
-    function bloquearPaciente(id) {
-        if (!confirm('¿Está seguro de bloquear a este paciente?')) return;
-        ejecutarAccion('bloquear_paciente', id);
-    }
-
-    // Desbloquear paciente
-    function desbloquearPaciente(id) {
-        if (!confirm('¿Está seguro de desbloquear a este paciente?')) return;
-        ejecutarAccion('desbloquear_paciente', id);
-    }
-
-    // Eliminar paciente
-    function eliminarPaciente(id) {
-        const paciente = pacientes.find(p => p.id_usuario === id);
-        if (!paciente) return;
-        
-        if (!confirm(`¿Está seguro de eliminar a ${paciente.nombre} ${paciente.apellidos}? Esta acción no se puede deshacer.`)) return;
-        ejecutarAccion('eliminar_paciente', id);
-    }
-
     // Modal de advertencia
     function showModal(title, message) {
         const modal = document.createElement("div");
@@ -539,42 +574,6 @@
             </div>
         `;
         document.body.appendChild(modal);
-    }
-
-    // Función para mostrar mensajes de éxito
-    function showSuccessMessage(message) {
-        const toast = document.createElement("div");
-        toast.className = "fixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg z-50 transform translate-x-full transition-transform duration-300";
-        toast.textContent = message;
-        
-        document.body.appendChild(toast);
-        
-        setTimeout(() => {
-            toast.classList.remove("translate-x-full");
-        }, 100);
-        
-        setTimeout(() => {
-            toast.classList.add("translate-x-full");
-            setTimeout(() => toast.remove(), 300);
-        }, 3000);
-    }
-
-    // Función para mostrar mensajes de error
-    function showErrorMessage(message) {
-        const toast = document.createElement("div");
-        toast.className = "fixed top-4 right-4 bg-red-600 text-white px-6 py-3 rounded-lg shadow-lg z-50 transform translate-x-full transition-transform duration-300";
-        toast.textContent = message;
-        
-        document.body.appendChild(toast);
-        
-        setTimeout(() => {
-            toast.classList.remove("translate-x-full");
-        }, 100);
-        
-        setTimeout(() => {
-            toast.classList.add("translate-x-full");
-            setTimeout(() => toast.remove(), 300);
-        }, 3000);
     }
 
     // Inicialización
