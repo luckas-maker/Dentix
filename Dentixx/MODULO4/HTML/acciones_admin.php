@@ -1,10 +1,14 @@
 <?php
+// acciones_admin.php - VERSIÓN CORREGIDA
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 // Usar ruta relativa correcta para incluir database.php
 require_once '../../config/database.php';
 
 header('Content-Type: application/json');
 
-// Permitir CORS si es necesario
+// Permitir CORS
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, GET, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
@@ -25,7 +29,7 @@ $input = file_get_contents('php://input');
 $data = json_decode($input, true);
 
 // Si json_decode falla, intentar con $_POST
-if ($data === null && !empty($_POST)) {
+if ($data === null) {
     $data = $_POST;
 }
 
@@ -45,8 +49,12 @@ try {
     $pdo = getDBConnection();
     
     switch ($accion) {
-        case 'registrar_asistencia':
-            registrarAsistencia($pdo, $id_usuario);
+        case 'marcar_asistencia':
+            marcarAsistencia($pdo, $id_usuario);
+            break;
+            
+        case 'marcar_no_asistio':
+            marcarNoAsistio($pdo, $id_usuario);
             break;
             
         case 'bloquear_paciente':
@@ -76,20 +84,21 @@ try {
     ]);
 }
 
-function registrarAsistencia($pdo, $id_usuario) {
-    // Verificar si tiene citas para hoy
+function marcarAsistencia($pdo, $id_usuario) {
+    // Buscar la cita de hoy para este paciente
     $stmt = $pdo->prepare("
-        SELECT COUNT(*) as tiene_citas_hoy 
+        SELECT c.id_cita 
         FROM citas c 
         JOIN franjasdisponibles f ON c.id_franja = f.id_franja 
         WHERE c.id_paciente = ? 
         AND c.estado_cita IN ('Pendiente', 'Confirmada')
         AND f.fecha = CURDATE()
+        LIMIT 1
     ");
     $stmt->execute([$id_usuario]);
-    $result = $stmt->fetch();
+    $cita = $stmt->fetch();
     
-    if ($result['tiene_citas_hoy'] == 0) {
+    if (!$cita) {
         echo json_encode([
             'success' => false, 
             'message' => 'El paciente no tiene citas para hoy'
@@ -97,13 +106,45 @@ function registrarAsistencia($pdo, $id_usuario) {
         return;
     }
     
-    // Actualizar faltas consecutivas a 0
-    $stmt = $pdo->prepare("UPDATE usuarios SET faltas_consecutivas = 0 WHERE id_usuario = ?");
-    $stmt->execute([$id_usuario]);
+    // Actualizar estado de la cita a "Asistida"
+    $stmt = $pdo->prepare("UPDATE citas SET estado_cita = 'Asistida' WHERE id_cita = ?");
+    $stmt->execute([$cita['id_cita']]);
     
     echo json_encode([
         'success' => true, 
         'message' => 'Asistencia registrada correctamente'
+    ]);
+}
+
+function marcarNoAsistio($pdo, $id_usuario) {
+    // Buscar la cita de hoy para este paciente
+    $stmt = $pdo->prepare("
+        SELECT c.id_cita 
+        FROM citas c 
+        JOIN franjasdisponibles f ON c.id_franja = f.id_franja 
+        WHERE c.id_paciente = ? 
+        AND c.estado_cita IN ('Pendiente', 'Confirmada')
+        AND f.fecha = CURDATE()
+        LIMIT 1
+    ");
+    $stmt->execute([$id_usuario]);
+    $cita = $stmt->fetch();
+    
+    if (!$cita) {
+        echo json_encode([
+            'success' => false, 
+            'message' => 'El paciente no tiene citas para hoy'
+        ]);
+        return;
+    }
+    
+    // Actualizar estado de la cita a "No Asistio"
+    $stmt = $pdo->prepare("UPDATE citas SET estado_cita = 'No Asistio' WHERE id_cita = ?");
+    $stmt->execute([$cita['id_cita']]);
+    
+    echo json_encode([
+        'success' => true, 
+        'message' => 'No asistencia registrada correctamente'
     ]);
 }
 
@@ -165,7 +206,7 @@ function eliminarPaciente($pdo, $id_usuario) {
         return;
     }
     
-    // Eliminar paciente (con CASCADE se eliminarán tokens y citas relacionadas)
+    // Eliminar paciente
     $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id_usuario = ? AND rol = 'Paciente'");
     $stmt->execute([$id_usuario]);
     
