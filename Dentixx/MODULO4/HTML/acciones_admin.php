@@ -3,12 +3,9 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// Usar ruta relativa correcta para incluir database.php
 require_once '../../config/database.php';
 
 header('Content-Type: application/json');
-
-// Permitir CORS
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, GET, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
@@ -17,18 +14,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
 }
 
-// Solo permitir método POST
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['success' => false, 'message' => 'Método no permitido']);
     exit;
 }
 
-// Obtener datos del cuerpo de la solicitud
 $input = file_get_contents('php://input');
 $data = json_decode($input, true);
 
-// Si json_decode falla, intentar con $_POST
 if ($data === null) {
     $data = $_POST;
 }
@@ -36,7 +30,6 @@ if ($data === null) {
 $accion = $data['accion'] ?? '';
 $id_usuario = $data['id_usuario'] ?? null;
 
-// Validar datos requeridos
 if (empty($accion) || empty($id_usuario)) {
     echo json_encode([
         'success' => false, 
@@ -85,7 +78,6 @@ try {
 }
 
 function marcarAsistencia($pdo, $id_usuario) {
-    // Buscar la cita de hoy para este paciente
     $stmt = $pdo->prepare("
         SELECT c.id_cita 
         FROM citas c 
@@ -106,7 +98,6 @@ function marcarAsistencia($pdo, $id_usuario) {
         return;
     }
     
-    // Actualizar estado de la cita a "Asistida"
     $stmt = $pdo->prepare("UPDATE citas SET estado_cita = 'Asistida' WHERE id_cita = ?");
     $stmt->execute([$cita['id_cita']]);
     
@@ -117,7 +108,6 @@ function marcarAsistencia($pdo, $id_usuario) {
 }
 
 function marcarNoAsistio($pdo, $id_usuario) {
-    // Buscar la cita de hoy para este paciente
     $stmt = $pdo->prepare("
         SELECT c.id_cita 
         FROM citas c 
@@ -138,7 +128,6 @@ function marcarNoAsistio($pdo, $id_usuario) {
         return;
     }
     
-    // Actualizar estado de la cita a "No Asistio"
     $stmt = $pdo->prepare("UPDATE citas SET estado_cita = 'No Asistio' WHERE id_cita = ?");
     $stmt->execute([$cita['id_cita']]);
     
@@ -149,7 +138,6 @@ function marcarNoAsistio($pdo, $id_usuario) {
 }
 
 function bloquearPaciente($pdo, $id_usuario) {
-    // Verificar si tiene citas pendientes
     $stmt = $pdo->prepare("
         SELECT COUNT(*) as citas_pendientes 
         FROM citas 
@@ -167,7 +155,6 @@ function bloquearPaciente($pdo, $id_usuario) {
         return;
     }
     
-    // Bloquear cuenta
     $stmt = $pdo->prepare("UPDATE usuarios SET estado_cuenta = 'Bloqueado' WHERE id_usuario = ?");
     $stmt->execute([$id_usuario]);
     
@@ -187,23 +174,34 @@ function desbloquearPaciente($pdo, $id_usuario) {
     ]);
 }
 
+// SOLO UNA DEFINICIÓN DE LA FUNCIÓN eliminarPaciente
 function eliminarPaciente($pdo, $id_usuario) {
-    // Verificar si tiene citas pendientes
+    // Verificar si tiene citas pendientes (más estricto)
     $stmt = $pdo->prepare("
-        SELECT COUNT(*) as citas_pendientes 
+        SELECT COUNT(*) as total_citas 
         FROM citas 
-        WHERE id_paciente = ? 
-        AND estado_cita IN ('Pendiente', 'Confirmada')
+        WHERE id_paciente = ?
     ");
     $stmt->execute([$id_usuario]);
     $result = $stmt->fetch();
     
-    if ($result['citas_pendientes'] > 0) {
+    if ($result['total_citas'] > 0) {
         echo json_encode([
             'success' => false, 
-            'message' => 'El usuario tiene citas agendadas. Debe cancelarlas antes de eliminarlo.'
+            'message' => 'No se puede eliminar el paciente porque tiene historial de citas. Use la opción de bloquear en su lugar.'
         ]);
         return;
+    }
+    
+    // Verificar tokens
+    $stmt = $pdo->prepare("SELECT COUNT(*) as total_tokens FROM tokensvalidacion WHERE id_usuario = ?");
+    $stmt->execute([$id_usuario]);
+    $tokens = $stmt->fetch();
+    
+    if ($tokens['total_tokens'] > 0) {
+        // Eliminar tokens primero
+        $stmt = $pdo->prepare("DELETE FROM tokensvalidacion WHERE id_usuario = ?");
+        $stmt->execute([$id_usuario]);
     }
     
     // Eliminar paciente
