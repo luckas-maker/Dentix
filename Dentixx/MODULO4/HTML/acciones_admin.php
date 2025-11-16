@@ -174,49 +174,64 @@ function desbloquearPaciente($pdo, $id_usuario) {
     ]);
 }
 
-// SOLO UNA DEFINICIÓN DE LA FUNCIÓN eliminarPaciente
 function eliminarPaciente($pdo, $id_usuario) {
-    // Verificar si tiene citas pendientes (más estricto)
-    $stmt = $pdo->prepare("
-        SELECT COUNT(*) as total_citas 
-        FROM citas 
-        WHERE id_paciente = ?
-    ");
-    $stmt->execute([$id_usuario]);
-    $result = $stmt->fetch();
+    // INICIAR TRANSACCIÓN para asegurar consistencia
+    $pdo->beginTransaction();
     
-    if ($result['total_citas'] > 0) {
-        echo json_encode([
-            'success' => false, 
-            'message' => 'No se puede eliminar el paciente porque tiene historial de citas. Use la opción de bloquear en su lugar.'
-        ]);
-        return;
-    }
-    
-    // Verificar tokens
-    $stmt = $pdo->prepare("SELECT COUNT(*) as total_tokens FROM tokensvalidacion WHERE id_usuario = ?");
-    $stmt->execute([$id_usuario]);
-    $tokens = $stmt->fetch();
-    
-    if ($tokens['total_tokens'] > 0) {
-        // Eliminar tokens primero
+    try {
+        // 1. Verificar si tiene citas FUTURAS (Pendientes o Confirmadas)
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as citas_futuras 
+            FROM citas c
+            JOIN franjasdisponibles f ON c.id_franja = f.id_franja
+            WHERE c.id_paciente = ? 
+            AND f.fecha >= CURDATE()
+            AND c.estado_cita IN ('Pendiente', 'Confirmada')
+        ");
+        $stmt->execute([$id_usuario]);
+        $result = $stmt->fetch();
+        
+        if ($result['citas_futuras'] > 0) {
+            $pdo->rollBack();
+            echo json_encode([
+                'success' => false, 
+                'message' => 'No se puede eliminar el paciente porque tiene citas futuras. Cancele las citas primero.'
+            ]);
+            return;
+        }
+        
+        // 2. Eliminar tokens de validación
         $stmt = $pdo->prepare("DELETE FROM tokensvalidacion WHERE id_usuario = ?");
         $stmt->execute([$id_usuario]);
-    }
-    
-    // Eliminar paciente
-    $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id_usuario = ? AND rol = 'Paciente'");
-    $stmt->execute([$id_usuario]);
-    
-    if ($stmt->rowCount() > 0) {
-        echo json_encode([
-            'success' => true, 
-            'message' => 'Paciente eliminado correctamente'
-        ]);
-    } else {
+        
+        // 3. Eliminar todas las citas del paciente (pasadas y futuras)
+        $stmt = $pdo->prepare("DELETE FROM citas WHERE id_paciente = ?");
+        $stmt->execute([$id_usuario]);
+        
+        // 4. Eliminar al paciente de la tabla usuarios
+        $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id_usuario = ? AND rol = 'Paciente'");
+        $stmt->execute([$id_usuario]);
+        
+        if ($stmt->rowCount() > 0) {
+            $pdo->commit();
+            echo json_encode([
+                'success' => true, 
+                'message' => 'Paciente eliminado completamente del sistema'
+            ]);
+        } else {
+            $pdo->rollBack();
+            echo json_encode([
+                'success' => false, 
+                'message' => 'No se pudo eliminar el paciente. Verifique que exista y sea un paciente.'
+            ]);
+        }
+        
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        error_log("Error al eliminar paciente: " . $e->getMessage());
         echo json_encode([
             'success' => false, 
-            'message' => 'No se pudo eliminar el paciente'
+            'message' => 'Error al eliminar paciente: ' . $e->getMessage()
         ]);
     }
 }
