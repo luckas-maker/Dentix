@@ -1,0 +1,25 @@
+<?php
+// Configuración de conexión a la base de datos correcta para XAMPP
+define('DB_HOST', 'localhost');
+define('DB_NAME', 'Novasoft');  // Asegúrate que esta BD exista en phpMyAdmin
+define('DB_USER', 'root');
+define('DB_PASS', 'root'); // Contraseña vacía en XAMPP
+define('DB_CHARSET', 'utf8mb4');
+
+// 1. Establece la zona horaria para todas las funciones de fecha/hora de PHP
+date_default_timezone_set('America/Mexico_City');
+
+function getDBConnection() {
+    try {
+        $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET;
+        $options = [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ];
+        return new PDO($dsn, DB_USER, DB_PASS, $options);
+    } catch (PDOException $e) {
+        throw new Exception('Error de conexión a la base de datos: ' . $e->getMessage());
+    }
+}
+?>
