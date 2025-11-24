@@ -42,18 +42,52 @@ try {
         sendResponse(['success' => false, 'message' => 'Correo y contraseña son obligatorios'], 400);
     }
     
-    // Buscar usuario por correo
-    $stmt = $db->prepare("SELECT id_usuario, nombre, apellidos, correo, contrasena, rol, estado_cuenta FROM Usuarios WHERE correo = ?");
+    // MODIFICACIÓN: Agregar campos para intentos fallidos y bloqueo temporal
+    $stmt = $db->prepare("SELECT id_usuario, nombre, apellidos, correo, contrasena, rol, estado_cuenta, intentos_fallidos, bloqueo_hasta FROM Usuarios WHERE correo = ?");
     $stmt->execute([$email]);
     $usuario = $stmt->fetch(PDO::FETCH_ASSOC); // Usar FETCH_ASSOC
     
-    if (!$usuario || !password_verify($password, $usuario['contrasena'])) {
-        sendResponse(['success' => false, 'message' => 'Correo o contraseña incorrectos'], 401);
+    // MODIFICACIÓN: Verificar bloqueo temporal INMEDIATAMENTE después de consultar usuario
+    if ($usuario && $usuario['bloqueo_hasta'] && strtotime($usuario['bloqueo_hasta']) > time()) {
+        $tiempo_restante = ' hasta ' . date('H:i', strtotime($usuario['bloqueo_hasta']));
+        sendResponse(['success' => false, 'message' => 'Tu cuenta ha sido bloqueada temporalmente' . $tiempo_restante . '. Intenta nuevamente en 30 minutos.'], 403);
     }
-
-    // --- LÓGICA DE ESTADO DE CUENTA (MODIFICADA) ---
     
-    // 1. Cuenta Bloqueada
+    // Ahora verificar contraseña (solo si no está bloqueado)
+    if (!$usuario || !password_verify($password, $usuario['contrasena'])) {
+        // MODIFICACIÓN: Lógica para manejar intentos fallidos y bloqueo (solo si usuario existe)
+        if ($usuario) {
+            // Incrementar intentos fallidos
+            $db->prepare("UPDATE Usuarios SET intentos_fallidos = intentos_fallidos + 1 WHERE id_usuario = ?")->execute([$usuario['id_usuario']]);
+            
+            // Obtener el nuevo conteo de intentos
+            $stmt_intentos = $db->prepare("SELECT intentos_fallidos FROM Usuarios WHERE id_usuario = ?");
+            $stmt_intentos->execute([$usuario['id_usuario']]);
+            $intentos_actuales = $stmt_intentos->fetchColumn();
+            
+            $limite_intentos = 5; // Configurable: límite de intentos fallidos
+            $intentos_restantes = $limite_intentos - $intentos_actuales;
+            
+            if ($intentos_actuales >= $limite_intentos) {
+                // Bloquear por 30 minutos y resetear intentos
+                $bloqueo_hasta = date('Y-m-d H:i:s', time() + 1800); // 30 minutos
+                $db->prepare("UPDATE Usuarios SET intentos_fallidos = 0, bloqueo_hasta = ? WHERE id_usuario = ?")->execute([$bloqueo_hasta, $usuario['id_usuario']]);
+                // Opcional: Enviar email de bloqueo
+                // sendAccountBlockedEmail($usuario['correo'], $usuario['nombre'], true);
+                sendResponse(['success' => false, 'message' => 'Demasiados intentos fallidos. Cuenta bloqueada por 30 minutos.'], 429);
+            } else {
+                // Mostrar intentos restantes
+                sendResponse(['success' => false, 'message' => "Correo o contraseña incorrectos. Le quedan {$intentos_restantes} intento(s) antes de bloquearse por 30 minutos."], 401);
+            }
+        } else {
+            // Usuario no encontrado: mensaje genérico
+            sendResponse(['success' => false, 'message' => 'Correo o contraseña incorrectos'], 401);
+        }
+    }
+    
+    // --- LÓGICA DE ESTADO DE CUENTA ---
+    
+    // 1. Cuenta Bloqueada (manual)
     if ($usuario['estado_cuenta'] === 'Bloqueado') {
         sendResponse(['success' => false, 'message' => 'Tu cuenta ha sido bloqueada. Contacta al administrador.'], 403);
     }
@@ -73,12 +107,12 @@ try {
         $limit_count = $stmt_limit->fetch(PDO::FETCH_ASSOC)['count'];
         
         $mensaje_error = 'Tu cuenta está pendiente. ';
-
+        
         // CORRECCIÓN: Si el límite AÚN NO se alcanza, enviar correo
         if ($limit_count < 3) {
             $token = bin2hex(random_bytes(32)); 
             $fecha_expiracion = date('Y-m-d H:i:s', time() + (15 * 60)); // 15 minutos
-
+            
             // Insertar nuevo token (NO borramos los viejos para que el contador funcione)
             $sql_token = "INSERT INTO tokensvalidacion (id_usuario, codigo, tipo, fecha_expiracion) VALUES (?, ?, 'ValidacionCorreo', ?)";
             $db->prepare($sql_token)->execute([$user_id, $token, $fecha_expiracion]);
@@ -100,6 +134,9 @@ try {
     $_SESSION['user_name'] = $usuario['nombre'] . ' ' . $usuario['apellidos'];
     $_SESSION['user_email'] = $usuario['correo'];
     $_SESSION['user_role'] = $usuario['rol'];
+    
+    // MODIFICACIÓN: Resetear intentos y bloqueo en login exitoso
+    $db->prepare("UPDATE Usuarios SET intentos_fallidos = 0, bloqueo_hasta = NULL WHERE id_usuario = ?")->execute([$usuario['id_usuario']]);
     
     sendResponse([
         'success' => true, 
