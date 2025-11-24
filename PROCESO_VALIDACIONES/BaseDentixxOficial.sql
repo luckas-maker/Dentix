@@ -262,3 +262,6 @@ ADD COLUMN `recibir_recordatorios` TINYINT(1) NOT NULL DEFAULT 1 AFTER `fecha_re
 -- 2. Añade la columna para marcar el recordatorio como enviado
 ALTER TABLE `citas`
 ADD COLUMN `recordatorio_enviado` TINYINT(1) NOT NULL DEFAULT 0 AFTER `fecha_notificacion`;
+
+ALTER TABLE usuarios ADD COLUMN intentos_fallidos INT;
+ALTER TABLE Usuarios ADD COLUMN bloqueo_hasta DATETIME NULL;
